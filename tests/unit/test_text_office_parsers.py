@@ -166,13 +166,11 @@ def test_qa_parser_rejects_duplicate_qa_ids(tmp_path):
         QAParser().parse(path)
 
 
-@pytest.mark.parametrize(
-    "path",
-    [CORPUS / "DOC-050.pdf", Path("mock_data/eval/evaluation.jsonl")],
-)
-def test_default_registry_excludes_pdf_and_evaluation(path):
+def test_default_registry_excludes_evaluation():
     with pytest.raises(UnsupportedDocumentType):
-        ParserRegistry.default().parse(path, "unsupported")
+        ParserRegistry.default().parse(
+            Path("mock_data/eval/evaluation.jsonl"), "unsupported"
+        )
 
 
 @pytest.mark.parametrize(

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.domain.models import ParsedBlock
 from app.ingestion.base import DocumentParser
+from app.ingestion.pdf import PDFParser
 from app.ingestion.text_office import DocxParser, TextParser, XlsxParser
 
 
@@ -20,7 +21,7 @@ class ParserRegistry:
 
     @classmethod
     def default(cls) -> "ParserRegistry":
-        return cls([TextParser(), DocxParser(), XlsxParser()])
+        return cls([TextParser(), DocxParser(), XlsxParser(), PDFParser()])
 
     def parse(self, path: Path, document_id: str) -> list[ParsedBlock]:
         parser = self._parsers.get(path.suffix.lower())

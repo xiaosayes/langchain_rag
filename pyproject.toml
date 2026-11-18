@@ -47,6 +47,9 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "ocr: tests that run real CPU PaddleOCR recognition",
+]
 
 [[tool.mypy.overrides]]
 module = "yaml"
