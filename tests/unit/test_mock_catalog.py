@@ -20,6 +20,15 @@ def test_catalog_has_exact_shape_and_unique_facts():
     assert all(len(spec.facts) == 10 for spec in catalog)
     assert all(spec.facts for spec in catalog)
     assert len({spec.domain for spec in catalog}) == 7
+    assert {spec.domain for spec in catalog} == {
+        "财务管理",
+        "人力资源",
+        "采购管理",
+        "信息技术",
+        "法务合规",
+        "行政运营",
+        "产品制度",
+    }
     assert len({fact.question for spec in catalog for fact in spec.facts}) == 1000
     assert all(
         fact.question != fact.paraphrase
