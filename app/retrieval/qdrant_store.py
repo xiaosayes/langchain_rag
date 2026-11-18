@@ -10,6 +10,11 @@ from app.config import QdrantSettings
 from app.domain.models import ChildChunk, SearchHit
 
 _UPSERT_BATCH_SIZE = 128
+_QDRANT_DISTANCES = {
+    "cosine": models.Distance.COSINE,
+    "euclid": models.Distance.EUCLID,
+    "dot": models.Distance.DOT,
+}
 
 
 class QdrantGenerationStore:
@@ -29,7 +34,8 @@ class QdrantGenerationStore:
         self.client.create_collection(
             collection_name=collection,
             vectors_config=models.VectorParams(
-                size=dimension, distance=models.Distance.COSINE
+                size=dimension,
+                distance=_QDRANT_DISTANCES[self._settings.distance],
             ),
         )
         self.client.create_payload_index(
@@ -122,6 +128,26 @@ class QdrantGenerationStore:
             payload = record.payload or {}
             vectors[payload["child_id"]] = cast(list[float], vector)
         return vectors
+
+    def child_ids(self, generation_id: str) -> frozenset[str]:
+        """Read every persisted payload ID for exact generation verification."""
+        child_ids: set[str] = set()
+        offset = None
+        while True:
+            points, offset = self.client.scroll(
+                collection_name=self.collection_name(generation_id),
+                limit=256,
+                offset=offset,
+                with_payload=["child_id"],
+                with_vectors=False,
+            )
+            for point in points:
+                payload = point.payload or {}
+                child_id = payload.get("child_id")
+                if isinstance(child_id, str):
+                    child_ids.add(child_id)
+            if offset is None:
+                return frozenset(child_ids)
 
     def delete(self, generation_id: str) -> None:
         self.client.delete_collection(self.collection_name(generation_id))

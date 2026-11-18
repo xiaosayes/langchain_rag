@@ -13,13 +13,16 @@ from app.bootstrap import _qdrant, _repository
 from app.config import AppSettings
 from app.db.models import ChildChunkRecord, ParentChunkRecord
 from app.indexing.repository import IndexRepository
+from app.indexing.vector_space import VectorSpace
+from app.ingestion.pdf import has_usable_text_layer
 from app.ingestion.text_office import QAParser
 from app.retrieval.bm25 import PersistentBM25
 
 EXPECTED_ORDINARY_DOCUMENTS = 100
 EXPECTED_KNOWLEDGE_QA = 1000
 _SUPPORTED_SUFFIXES = frozenset({".txt", ".docx", ".xlsx", ".pdf"})
-_MINIMUM_PDF_TEXT_CHARACTERS = 20
+_EXPECTED_BY_EXTENSION = {".txt": 25, ".docx": 25, ".xlsx": 25, ".pdf": 25}
+_EXPECTED_PDF_COUNTS = {"scanned": 5, "text": 20}
 
 
 def ordinary_document_paths(corpus: Path) -> list[Path]:
@@ -76,7 +79,7 @@ def _pdf_counts(paths: list[Path]) -> dict[str, int]:
     for path in paths:
         with fitz.open(path) as document:
             has_text_layer = any(
-                len(page.get_text("text").strip()) >= _MINIMUM_PDF_TEXT_CHARACTERS
+                has_usable_text_layer(page.get_text("text").strip())
                 for page in document
             )
         if not has_text_layer:
@@ -106,6 +109,13 @@ class CoreVerifier:
                         name="parent_child_integrity",
                         ok=False,
                         expected="every child references a parent in the same generation/document",
+                        actual=None,
+                        message="not checked: active generation unavailable",
+                    ),
+                    VerificationCheck(
+                        name="vector_space_compatibility",
+                        ok=False,
+                        expected=VectorSpace.from_settings(self.settings).fingerprint,
                         actual=None,
                         message="not checked: active generation unavailable",
                     ),
@@ -140,6 +150,7 @@ class CoreVerifier:
                 ),
             )
         )
+        checks.append(self._check_vector_space(repository, generation_id))
         try:
             checks.append(self._check_parent_children(repository, generation_id))
         except Exception as error:  # noqa: BLE001 - query failures are check data.
@@ -167,6 +178,36 @@ class CoreVerifier:
         checks.append(self._check_bm25(repository, generation_id))
         return VerificationReport(checks)
 
+    def _check_vector_space(
+        self, repository: IndexRepository, generation_id: str | None
+    ) -> VerificationCheck:
+        expected_space = VectorSpace.from_settings(self.settings)
+        expected = {
+            "provider": expected_space.provider,
+            "model": expected_space.model,
+            "dimension": expected_space.dimension,
+            "distance": expected_space.distance,
+            "fingerprint": expected_space.fingerprint,
+        }
+        actual = (
+            repository.vector_space_fingerprint(generation_id)
+            if generation_id is not None
+            else None
+        )
+        ok = generation_id is not None and actual == expected_space.fingerprint
+        return VerificationCheck(
+            name="vector_space_compatibility",
+            ok=ok,
+            expected=expected,
+            actual={"generation_id": generation_id, "fingerprint": actual},
+            message=(
+                "active generation vector space is compatible"
+                if ok
+                else "active generation vector space is unknown or incompatible; "
+                "run rebuild with the current provider, model, dimension, and distance"
+            ),
+        )
+
     def _check_corpus(self) -> VerificationCheck:
         actual: dict[str, Any] = {}
         try:
@@ -189,14 +230,25 @@ class CoreVerifier:
                 error,
                 actual or None,
             )
+        ok = (
+            len(paths) == EXPECTED_ORDINARY_DOCUMENTS
+            and actual["by_extension"] == _EXPECTED_BY_EXTENSION
+            and actual["pdf"] == _EXPECTED_PDF_COUNTS
+        )
+        expected = {
+            "total": EXPECTED_ORDINARY_DOCUMENTS,
+            "by_extension": _EXPECTED_BY_EXTENSION,
+            "pdf": _EXPECTED_PDF_COUNTS,
+        }
         return VerificationCheck(
             name="ordinary_documents",
-            ok=len(paths) == EXPECTED_ORDINARY_DOCUMENTS,
-            expected=EXPECTED_ORDINARY_DOCUMENTS,
+            ok=ok,
+            expected=expected,
             actual=actual,
             message=(
-                f"expected {EXPECTED_ORDINARY_DOCUMENTS} ordinary documents, "
-                f"found {len(paths)}"
+                "ordinary document and PDF shape passed"
+                if ok
+                else f"expected {expected}, found {actual}"
             ),
         )
 
@@ -292,11 +344,20 @@ class CoreVerifier:
             dimension = (
                 vectors.size if isinstance(vectors, models.VectorParams) else None
             )
+            distance = (
+                vectors.distance
+                if isinstance(vectors, models.VectorParams)
+                else None
+            )
+            distance_name = (
+                distance.value.lower() if distance is not None else None
+            )
             point_count = qdrant.client.count(
                 qdrant.collection_name(generation_id), exact=True
             ).count
+            qdrant_child_ids = qdrant.child_ids(generation_id)
             with repository.session_factory() as session:
-                child_count = len(
+                database_child_ids = set(
                     session.scalars(
                         select(ChildChunkRecord.id).where(
                             ChildChunkRecord.generation_id == generation_id
@@ -307,27 +368,38 @@ class CoreVerifier:
             return _error_check(
                 "qdrant_dimension", self.settings.embedding.dimension, error
             )
+        child_count = len(database_child_ids)
+        child_ids_match = qdrant_child_ids == database_child_ids
         actual = {
             "generation_id": generation_id,
             "dimension": dimension,
+            "distance": distance_name,
             "point_count": point_count,
             "child_count": child_count,
+            "child_ids_match": child_ids_match,
+            "missing_child_ids": sorted(database_child_ids - qdrant_child_ids),
+            "unexpected_child_ids": sorted(qdrant_child_ids - database_child_ids),
         }
         ok = (
             dimension == self.settings.embedding.dimension
+            and distance_name == self.settings.qdrant.distance
             and point_count == child_count
+            and child_ids_match
         )
         return VerificationCheck(
             name="qdrant_dimension",
             ok=ok,
             expected={
                 "dimension": self.settings.embedding.dimension,
+                "distance": self.settings.qdrant.distance,
                 "point_count": child_count,
+                "child_ids_match": True,
             },
             actual=actual,
             message=(
-                f"Qdrant dimension {dimension}, points {point_count}, "
-                f"database children {child_count}"
+                f"Qdrant dimension {dimension}, distance {distance_name}, "
+                f"points {point_count}, database children {child_count}, "
+                f"child IDs match: {child_ids_match}"
             ),
         )
 
@@ -346,12 +418,12 @@ class CoreVerifier:
             from app.bootstrap import state_directory
 
             generation_dir = state_directory() / "bm25" / generation_id
-            PersistentBM25.load(generation_dir)
+            bm25 = PersistentBM25.load(generation_dir)
             manifest = json.loads(
                 (generation_dir / "manifest.json").read_text(encoding="utf-8")
             )
             with repository.session_factory() as session:
-                child_count = len(
+                database_child_ids = set(
                     session.scalars(
                         select(ChildChunkRecord.id).where(
                             ChildChunkRecord.generation_id == generation_id
@@ -362,8 +434,16 @@ class CoreVerifier:
             return _error_check(
                 "bm25_manifest", "compatible active-generation manifest", error
             )
-        actual = {**manifest, "generation_id": generation_id}
-        ok = manifest.get("chunk_count") == child_count
+        child_count = len(database_child_ids)
+        child_ids_match = bm25.child_ids == database_child_ids
+        actual = {
+            **manifest,
+            "generation_id": generation_id,
+            "child_ids_match": child_ids_match,
+            "missing_child_ids": sorted(database_child_ids - bm25.child_ids),
+            "unexpected_child_ids": sorted(bm25.child_ids - database_child_ids),
+        }
+        ok = manifest.get("chunk_count") == child_count and child_ids_match
         return VerificationCheck(
             name="bm25_manifest",
             ok=ok,
@@ -371,10 +451,11 @@ class CoreVerifier:
                 "chunk_count": child_count,
                 "schema_version": 1,
                 "tokenizer": "jieba",
+                "child_ids_match": True,
             },
             actual=actual,
             message=(
                 f"BM25 manifest chunks {manifest.get('chunk_count')}, "
-                f"database children {child_count}"
+                f"database children {child_count}, child IDs match: {child_ids_match}"
             ),
         )

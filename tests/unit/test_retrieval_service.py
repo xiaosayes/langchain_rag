@@ -6,12 +6,20 @@ from app.config import RetrievalSettings
 from app.db.session import create_session_factory
 from app.domain.models import ParentChunk, SearchHit
 from app.indexing.repository import IndexRepository
+from app.indexing.vector_space import VectorSpace
 from app.models.bailian import RerankResult
 from app.retrieval.service import RetrievalService, RetrievalUnavailable
 
+TEST_VECTOR_SPACE = VectorSpace("fake", "test-model", 2, "cosine")
+
 
 class FakeEmbeddings:
+    def __init__(self) -> None:
+        self.error: Exception | None = None
+
     async def aembed_query(self, query: str) -> list[float]:
+        if self.error is not None:
+            raise self.error
         return [1.0, 0.0]
 
 
@@ -93,7 +101,7 @@ def make_parent(
 def activate(
     repository: IndexRepository, generation_id: str, parents: list[ParentChunk]
 ) -> None:
-    repository.prepare_generation(generation_id)
+    repository.prepare_generation(generation_id, TEST_VECTOR_SPACE)
     repository.activate_generation(generation_id, parents)
 
 
@@ -106,9 +114,12 @@ def build_service(
     parents: list[ParentChunk],
     reranker: FakeReranker | None = None,
     settings: RetrievalSettings | None = None,
+    vector_space: VectorSpace = TEST_VECTOR_SPACE,
+    rerank_candidate_count: int = 30,
 ) -> RetrievalService:
     repository = IndexRepository(create_session_factory(tmp_path / "rag.sqlite3"))
-    activate(repository, "gen-test", parents)
+    repository.prepare_generation("gen-test", vector_space)
+    repository.activate_generation("gen-test", parents)
     dense = FakeQdrant(dense_hits)
     bm25 = FakeStore(bm25_hits)
     service = RetrievalService(
@@ -118,6 +129,8 @@ def build_service(
         FakeEmbeddings(),  # type: ignore[arg-type]
         reranker or FakeReranker(reverse=True),  # type: ignore[arg-type]
         settings or RetrievalSettings(),
+        vector_space=vector_space,
+        rerank_candidate_count=rerank_candidate_count,
     )
     monkeypatch.setattr(service, "load_bm25", lambda generation_id: bm25)
     return service
@@ -267,6 +280,76 @@ async def test_rerank_receives_at_most_thirty_candidates(
     assert len(result.hits) == 30
     assert len(reranker.calls[0][1]) == 30
     assert reranker.calls[0][2] == 30
+
+
+@pytest.mark.asyncio
+async def test_query_embedding_failure_degrades_to_bm25(
+    retrieval_service: RetrievalService,
+):
+    retrieval_service.embeddings.error = RuntimeError("embedding unavailable")
+
+    result = await retrieval_service.asearch("policy", "gen-test")
+
+    assert result.degraded is True
+    assert {hit.child_id for hit in result.hits} == {
+        "child-shared",
+        "child-from-second-store",
+    }
+    assert result.documents
+
+
+@pytest.mark.asyncio
+async def test_embedding_and_bm25_failures_raise_retrieval_unavailable(
+    retrieval_service: RetrievalService,
+):
+    retrieval_service.embeddings.error = RuntimeError("embedding unavailable")
+    retrieval_service.load_bm25("gen-test").error = LookupError("BM25 unavailable")
+
+    with pytest.raises(RetrievalUnavailable) as caught:
+        await retrieval_service.asearch("policy", "gen-test")
+
+    assert "RuntimeError" in str(caught.value)
+    assert "LookupError" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_rerank_uses_injected_non_default_candidate_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    reranker = FakeReranker()
+    service = build_service(
+        tmp_path,
+        monkeypatch,
+        dense_hits=[make_hit(f"child-{index}", f"parent-{index}") for index in range(8)],
+        bm25_hits=[],
+        parents=[make_parent(f"parent-{index}") for index in range(8)],
+        reranker=reranker,
+        rerank_candidate_count=5,
+    )
+
+    result = await service.asearch("policy", "gen-test")
+
+    assert len(result.hits) == 5
+    assert len(reranker.calls[0][1]) == 5
+
+
+@pytest.mark.asyncio
+async def test_active_vector_space_mismatch_requires_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = build_service(
+        tmp_path,
+        monkeypatch,
+        dense_hits=[make_hit("child", "parent")],
+        bm25_hits=[],
+        parents=[make_parent("parent")],
+        vector_space=TEST_VECTOR_SPACE,
+    )
+    mismatched = VectorSpace("fake", "different-model", 2, "cosine")
+    service.vector_space = mismatched
+
+    with pytest.raises(RuntimeError, match="rebuild"):
+        await service.asearch("policy", "gen-test")
 
 
 @pytest.mark.asyncio

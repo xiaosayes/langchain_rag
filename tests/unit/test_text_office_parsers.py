@@ -64,6 +64,23 @@ def test_txt_parser_strips_blank_paragraphs_without_merging_sections(tmp_path):
     ]
 
 
+def test_txt_parser_falls_back_to_gb18030(tmp_path):
+    path = tmp_path / "gb18030.txt"
+    path.write_bytes("中文编码\n\n第二段内容".encode("gb18030"))
+
+    blocks = TextParser().parse(path, "encoded")
+
+    assert [block.text for block in blocks] == ["中文编码", "第二段内容"]
+
+
+def test_txt_parser_rejects_undecodable_input_after_bounded_fallback(tmp_path):
+    path = tmp_path / "invalid.txt"
+    path.write_bytes(b"\xff\xfe\x00\x81\x82")
+
+    with pytest.raises(UnicodeError, match="UTF-8|GB18030"):
+        TextParser().parse(path, "invalid")
+
+
 def test_docx_parser_preserves_heading_paths_and_table_rows():
     spec = next(item for item in build_catalog() if item.fmt == "docx")
     path = CORPUS / f"{spec.id}.docx"

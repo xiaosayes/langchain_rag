@@ -1,10 +1,13 @@
 import json
+import pickle
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
+import fitz
 import pytest
+from docx import Document as DocxDocument
 from langchain_core.documents import Document
 from openpyxl import Workbook
 from sqlalchemy import select
@@ -192,6 +195,7 @@ def test_verify_rejects_short_qa_file(cli_environment, tmp_path):
         "active_generation",
         "parent_child_integrity",
         "qdrant_dimension",
+        "vector_space_compatibility",
         "bm25_manifest",
     }
 
@@ -289,13 +293,34 @@ def test_fake_fixture_never_selects_real_mode_and_missing_keys_do_not_mutate(
         build_rag_service(bailian_settings)
 
 
+def write_exact_corpus_shape(corpus: Path) -> None:
+    for ordinal in range(2, 25):
+        (corpus / f"DOC-{ordinal:03d}.txt").write_text(
+            f"document {ordinal}", encoding="utf-8"
+        )
+    for ordinal in range(25):
+        document = DocxDocument()
+        document.add_paragraph(f"DOCX document {ordinal}")
+        document.save(corpus / f"DOCX-{ordinal:03d}.docx")
+        workbook = Workbook()
+        workbook.active.append(["value"])
+        workbook.active.append([ordinal])
+        workbook.save(corpus / f"XLSX-{ordinal:03d}.xlsx")
+        workbook.close()
+    for ordinal in range(25):
+        with fitz.open() as document:
+            page = document.new_page()
+            if ordinal < 20:
+                page.insert_text(
+                    (72, 72), f"Text PDF {ordinal} has enough meaningful characters."
+                )
+            document.save(corpus / f"PDF-{ordinal:03d}.pdf")
+
+
 def test_verify_reports_qdrant_dimension_and_bm25_manifest(cli_environment):
     # Verify source counts independently without building another 1000-row index.
     assert ingest(cli_environment).exit_code == 0
-    for ordinal in range(2, 100):
-        (cli_environment.corpus / f"DOC-{ordinal:03d}.txt").write_text(
-            f"document {ordinal}", encoding="utf-8"
-        )
+    write_exact_corpus_shape(cli_environment.corpus)
     write_qa_workbook(cli_environment.qa, row_count=1000)
 
     result = runner.invoke(
@@ -314,10 +339,20 @@ def test_verify_reports_qdrant_dimension_and_bm25_manifest(cli_environment):
     assert report["ok"] is True
     checks = {check["name"]: check for check in report["checks"]}
     assert checks["ordinary_documents"]["actual"]["total"] == 100
-    assert checks["ordinary_documents"]["actual"]["by_extension"][".txt"] == 100
+    assert checks["ordinary_documents"]["actual"]["by_extension"] == {
+        ".docx": 25,
+        ".pdf": 25,
+        ".txt": 25,
+        ".xlsx": 25,
+    }
+    assert checks["ordinary_documents"]["actual"]["pdf"] == {
+        "scanned": 5,
+        "text": 20,
+    }
     assert checks["knowledge_qa"]["actual"] == 1000
     assert checks["active_generation"]["actual"] == active_generation(cli_environment)
     assert checks["qdrant_dimension"]["actual"]["dimension"] == 1024
+    assert checks["vector_space_compatibility"]["ok"] is True
     generation = active_generation(cli_environment)
     assert checks["bm25_manifest"]["actual"]["generation_id"] == generation
     with create_session_factory(cli_environment.state / "index.sqlite3")() as session:
@@ -329,6 +364,103 @@ def test_verify_reports_qdrant_dimension_and_bm25_manifest(cli_environment):
             ).all()
         )
     assert checks["bm25_manifest"]["actual"]["chunk_count"] == child_count
+
+
+def verify(environment: CLIEnvironment):
+    return runner.invoke(
+        cli_app,
+        [
+            "verify",
+            "--corpus",
+            str(environment.corpus),
+            "--qa",
+            str(environment.qa),
+        ],
+        env={"MODEL_PROVIDER": "fake", "APP_ENV": "test"},
+    )
+
+
+def verification_check(result, name: str):
+    assert result.exit_code == 1
+    report = json.loads(result.stdout)
+    return next(check for check in report["checks"] if check["name"] == name)
+
+
+def test_verify_rejects_same_count_wrong_qdrant_child_id(cli_environment):
+    assert ingest(cli_environment).exit_code == 0
+    generation = active_generation(cli_environment)
+    store = QdrantGenerationStore(
+        QdrantSettings(
+            url=cli_environment.qdrant_url,
+            collection_prefix=cli_environment.collection_prefix,
+        )
+    )
+    points, _ = store.client.scroll(
+        store.collection_name(generation), limit=1, with_payload=True
+    )
+    store.client.set_payload(
+        store.collection_name(generation),
+        payload={**points[0].payload, "child_id": "wrong-child-id"},
+        points=[points[0].id],
+        wait=True,
+    )
+    store.client.close()
+
+    check = verification_check(verify(cli_environment), "qdrant_dimension")
+
+    assert check["ok"] is False
+    assert check["actual"]["child_ids_match"] is False
+
+
+def test_verify_rejects_same_count_wrong_bm25_child_id(cli_environment):
+    assert ingest(cli_environment).exit_code == 0
+    generation = active_generation(cli_environment)
+    state_path = cli_environment.state / "bm25" / generation / "bm25.pkl"
+    with state_path.open("rb") as state_file:
+        state = pickle.load(state_file)
+    state["chunks"][0] = replace(state["chunks"][0], id="wrong-child-id")
+    with state_path.open("wb") as state_file:
+        pickle.dump(state, state_file, protocol=pickle.HIGHEST_PROTOCOL)
+
+    check = verification_check(verify(cli_environment), "bm25_manifest")
+
+    assert check["ok"] is False
+    assert check["actual"]["child_ids_match"] is False
+
+
+def test_verify_rejects_active_vector_space_mismatch(cli_environment):
+    assert ingest(cli_environment).exit_code == 0
+    generation = active_generation(cli_environment)
+    with sqlite3.connect(cli_environment.state / "index.sqlite3") as connection:
+        connection.execute(
+            "UPDATE index_generations SET vector_space_fingerprint = 'wrong' "
+            "WHERE id = ?",
+            (generation,),
+        )
+
+    check = verification_check(
+        verify(cli_environment), "vector_space_compatibility"
+    )
+
+    assert check["ok"] is False
+    assert "rebuild" in check["message"]
+
+
+def test_verify_malformed_yaml_emits_structured_json_failure(
+    cli_environment, tmp_path, monkeypatch
+):
+    malformed = tmp_path / "malformed.yaml"
+    malformed.write_text("embedding: [unterminated", encoding="utf-8")
+    monkeypatch.setattr("app.cli.load_settings", lambda: load_settings(malformed))
+
+    result = verify(cli_environment)
+
+    assert result.exit_code == 1
+    report = json.loads(result.stdout)
+    assert report["ok"] is False
+    assert report["checks"][0]["name"] == "configuration"
+    assert report["checks"][0]["ok"] is False
+    assert result.stderr == ""
 
 
 def test_verify_reports_malformed_sqlite_as_json(cli_environment):

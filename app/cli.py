@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.bootstrap import build_index_builder, build_rag_service
 from app.config import load_settings
@@ -12,7 +14,12 @@ from app.domain.models import ParsedBlock
 from app.ingestion.registry import ParserRegistry
 from app.ingestion.text_office import QAParser
 from app.rag.service import RAGService
-from app.verification import CoreVerifier, ordinary_document_paths
+from app.verification import (
+    CoreVerifier,
+    VerificationCheck,
+    VerificationReport,
+    ordinary_document_paths,
+)
 
 cli_app = typer.Typer(
     name="rag-core",
@@ -62,7 +69,14 @@ def _build(corpus: Path, qa: Path) -> tuple[str, int, int]:
 def _build_command(corpus: Path, qa: Path, verb: str) -> None:
     try:
         generation_id, ordinary_count, qa_count = _build(corpus, qa)
-    except (OSError, RuntimeError, ValueError) as error:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        SQLAlchemyError,
+        ResponseHandlingException,
+        UnexpectedResponse,
+    ) as error:
         _fail(error)
     typer.echo(f"{verb} generation: {generation_id}")
     typer.echo(f"ordinary documents: {ordinary_count}")
@@ -111,7 +125,14 @@ def ask(
     try:
         service = build_rag_service(load_settings())
         asyncio.run(stream_cli_answer(service, question))
-    except (OSError, RuntimeError, ValueError) as error:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        SQLAlchemyError,
+        ResponseHandlingException,
+        UnexpectedResponse,
+    ) as error:
         _fail(error)
     finally:
         if service is not None:
@@ -121,8 +142,22 @@ def ask(
 @cli_app.command()
 def verify(corpus: CorpusOption, qa: QAOption) -> None:
     """Emit structured source, generation, lineage, Qdrant, and BM25 checks."""
-    settings = load_settings()
-    report = CoreVerifier(settings, corpus, qa).run()
+    try:
+        settings = load_settings()
+    except (OSError, ValueError) as error:
+        report = VerificationReport(
+            [
+                VerificationCheck(
+                    name="configuration",
+                    ok=False,
+                    expected="valid application configuration",
+                    actual=None,
+                    message=f"{type(error).__name__}: {error}",
+                )
+            ]
+        )
+    else:
+        report = CoreVerifier(settings, corpus, qa).run()
     typer.echo(report.to_json())
     if not report.ok:
         raise typer.Exit(code=1)

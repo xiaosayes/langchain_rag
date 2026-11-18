@@ -9,6 +9,7 @@ from uuid import uuid4
 from app.config import ChunkSettings
 from app.domain.models import ChildChunk, ParentChunk, ParsedBlock
 from app.indexing.repository import IndexRepository
+from app.indexing.vector_space import VectorSpace
 from app.ingestion.chunker import chunk_blocks
 from app.retrieval.bm25 import PersistentBM25
 from app.retrieval.qdrant_store import QdrantGenerationStore
@@ -28,19 +29,21 @@ class IndexBuilder:
         bm25_root: str | Path,
         embeddings: EmbeddingModel,
         chunk_settings: ChunkSettings,
+        vector_space: VectorSpace,
     ) -> None:
         self.repository = repository
         self.qdrant = qdrant
         self.bm25_root = Path(bm25_root)
         self.embeddings = embeddings
         self.chunk_settings = chunk_settings
+        self.vector_space = vector_space
 
     def build(self, documents: dict[str, list[ParsedBlock]]) -> str:
         generation_id = str(uuid4())
-        self.repository.prepare_generation(generation_id)
+        self.repository.prepare_generation(generation_id, self.vector_space)
         try:
             parents, children = self._chunk_all(documents)
-            reusable = self.repository.reusable_vectors(children)
+            reusable = self.repository.reusable_vectors(children, self.vector_space)
             previous_generation = self.repository.active_generation()
             vectors = (
                 self.qdrant.fetch_vectors(previous_generation, sorted(reusable))

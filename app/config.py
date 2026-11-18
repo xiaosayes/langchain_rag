@@ -7,6 +7,11 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+
+class ConfigurationError(ValueError):
+    """Raised for expected YAML and typed configuration failures."""
+
+
 SUPPORTED_EMBEDDING_DIMENSIONS = frozenset(
     {64, 128, 256, 512, 768, 1024, 1536, 2048}
 )
@@ -34,6 +39,7 @@ class EmbeddingSettings(BaseModel):
     batch_size: int = 10
     timeout_seconds: int = 60
     max_retries: int = 3
+    retry_total_deadline_seconds: float = Field(default=30, gt=0)
 
     @field_validator("dimension")
     @classmethod
@@ -52,9 +58,10 @@ class EmbeddingSettings(BaseModel):
 class RerankSettings(BaseModel):
     model: str = "qwen3-rerank"
     base_url: str = "https://dashscope.aliyuncs.com"
-    candidate_count: int = 30
+    candidate_count: int = Field(default=30, gt=0)
     timeout_seconds: int = 30
     max_retries: int = 3
+    retry_total_deadline_seconds: float = Field(default=30, gt=0)
 
 
 class RetrievalSettings(BaseModel):
@@ -86,9 +93,12 @@ class AppSettings(BaseModel):
 
 def load_settings(path: Path = Path("configs/default.yaml")) -> AppSettings:
     """Load settings from YAML, then apply supported environment overrides."""
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
+        raise ConfigurationError(f"Invalid YAML configuration: {error}") from error
     if not isinstance(loaded, dict):
-        raise TypeError("Configuration root must be a mapping")
+        raise ConfigurationError("Configuration root must be a mapping")
 
     data: dict[str, Any] = dict(loaded)
     environment_fields = {
@@ -101,4 +111,7 @@ def load_settings(path: Path = Path("configs/default.yaml")) -> AppSettings:
         if value is not None:
             data[field_name] = value
 
-    return AppSettings.model_validate(data)
+    try:
+        return AppSettings.model_validate(data)
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error

@@ -12,6 +12,7 @@ from app.db.models import (
 from app.db.session import create_session_factory
 from app.domain.models import ChildChunk, ParentChunk
 from app.indexing.repository import GenerationStateError, IndexRepository
+from app.indexing.vector_space import VectorSpace
 
 
 def make_parent(
@@ -59,8 +60,9 @@ def activate(
     *,
     parent: ParentChunk | None = None,
     children: list[ChildChunk] | None = None,
+    vector_space: VectorSpace | None = None,
 ) -> None:
-    index_repository.prepare_generation(generation_id)
+    index_repository.prepare_generation(generation_id, vector_space)
     index_repository.activate_generation(
         generation_id,
         [make_parent() if parent is None else parent],
@@ -105,6 +107,7 @@ def test_reusable_vectors_require_matching_id_hash_and_active_generation(
     tmp_path: Path,
 ):
     index_repository = repository(tmp_path)
+    vector_space = VectorSpace("fake", "model", 8, "cosine")
     unchanged = make_child("same", content_hash="same-hash")
     changed_hash = make_child("changed", content_hash="new-hash")
     unknown = make_child("new", content_hash="new-hash")
@@ -117,16 +120,17 @@ def test_reusable_vectors_require_matching_id_hash_and_active_generation(
             make_child("changed", content_hash="old-hash"),
             make_child("retired-only", content_hash="retired-hash"),
         ],
+        vector_space=vector_space,
     )
-    index_repository.prepare_generation("gen-2")
+    index_repository.prepare_generation("gen-2", vector_space)
     index_repository.activate_generation("gen-2", [make_parent()], [unchanged])
 
-    assert index_repository.reusable_vectors([unchanged, changed_hash, unknown]) == {
-        "same"
-    }
+    assert index_repository.reusable_vectors(
+        [unchanged, changed_hash, unknown], vector_space
+    ) == {"same"}
     assert (
         index_repository.reusable_vectors(
-            [make_child("retired-only", content_hash="retired-hash")]
+            [make_child("retired-only", content_hash="retired-hash")], vector_space
         )
         == set()
     )

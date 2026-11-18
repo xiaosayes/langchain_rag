@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import models as _models  # noqa: F401
@@ -24,4 +24,15 @@ def create_session_factory(path: Path) -> sessionmaker[Session]:
 
     event.listen(engine, "connect", configure_sqlite)
     Base.metadata.create_all(engine)
+    # create_all does not alter existing tables. Add only the nullable compatibility
+    # column so pre-fingerprint generations remain readable but explicitly unknown.
+    with engine.begin() as connection:
+        columns = inspect(connection).get_columns("index_generations")
+        if "vector_space_fingerprint" not in {column["name"] for column in columns}:
+            connection.execute(
+                text(
+                    "ALTER TABLE index_generations "
+                    "ADD COLUMN vector_space_fingerprint VARCHAR(64)"
+                )
+            )
     return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)

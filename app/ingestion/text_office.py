@@ -25,7 +25,20 @@ class TextParser:
     suffixes: tuple[str, ...] = (".txt",)
 
     def parse(self, path: Path, document_id: str) -> list[ParsedBlock]:
-        source = path.read_text(encoding="utf-8-sig")
+        raw = path.read_bytes()
+        source = ""
+        last_error: UnicodeDecodeError | None = None
+        # Deliberately bounded: UTF-8 (with optional BOM), then Chinese GB18030.
+        for encoding in ("utf-8-sig", "gb18030"):
+            try:
+                source = raw.decode(encoding)
+                break
+            except UnicodeDecodeError as error:
+                last_error = error
+        else:
+            raise UnicodeError(
+                f"{path.name}: TXT encoding is neither UTF-8 nor GB18030"
+            ) from last_error
         source = source.replace("\r\n", "\n").replace("\r", "\n")
         paragraphs = []
         for paragraph in re.split(r"\n\s*\n", source):

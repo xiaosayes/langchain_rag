@@ -13,6 +13,7 @@ from app.db.models import (
     ParentChunkRecord,
 )
 from app.domain.models import ChildChunk, ParentChunk
+from app.indexing.vector_space import VectorSpace
 
 
 class GenerationStateError(RuntimeError):
@@ -23,9 +24,19 @@ class IndexRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.session_factory = session_factory
 
-    def prepare_generation(self, generation_id: str) -> None:
+    def prepare_generation(
+        self, generation_id: str, vector_space: VectorSpace | None = None
+    ) -> None:
         with self.session_factory.begin() as session:
-            session.add(IndexGenerationRecord(id=generation_id, status="building"))
+            session.add(
+                IndexGenerationRecord(
+                    id=generation_id,
+                    status="building",
+                    vector_space_fingerprint=(
+                        vector_space.fingerprint if vector_space is not None else None
+                    ),
+                )
+            )
 
     def active_generation(self) -> str | None:
         with self.session_factory() as session:
@@ -53,19 +64,51 @@ class IndexRepository:
             if parent_id in by_id
         ]
 
-    def reusable_vectors(self, children: list[ChildChunk]) -> set[str]:
-        """Return child IDs with identical content hashes in the active generation."""
-        if not children:
+    def vector_space_fingerprint(self, generation_id: str) -> str | None:
+        with self.session_factory() as session:
+            generation = session.get(IndexGenerationRecord, generation_id)
+            return (
+                generation.vector_space_fingerprint
+                if generation is not None
+                else None
+            )
+
+    def require_compatible_vector_space(
+        self, generation_id: str, expected: VectorSpace
+    ) -> None:
+        """Reject legacy or changed vector spaces before any retrieval store read."""
+        with self.session_factory() as session:
+            generation = session.get(IndexGenerationRecord, generation_id)
+            stored = (
+                generation.vector_space_fingerprint
+                if generation is not None
+                else None
+            )
+        if stored != expected.fingerprint:
+            raise GenerationStateError(
+                "Active generation has an unknown or incompatible vector space; "
+                "run rebuild with the current provider, model, dimension, and distance"
+            )
+
+    def reusable_vectors(
+        self, children: list[ChildChunk], vector_space: VectorSpace | None = None
+    ) -> set[str]:
+        """Reuse hashes only from a known, exactly compatible active vector space."""
+        if not children or vector_space is None:
             return set()
         by_id = {child.id: child for child in children}
         with self.session_factory() as session:
-            generation_id = session.scalars(
-                select(IndexGenerationRecord.id).where(
+            generation = session.scalars(
+                select(IndexGenerationRecord).where(
                     IndexGenerationRecord.status == "active"
                 )
             ).one_or_none()
-            if generation_id is None:
+            if (
+                generation is None
+                or generation.vector_space_fingerprint != vector_space.fingerprint
+            ):
                 return set()
+            generation_id = generation.id
             rows = session.execute(
                 select(ChildChunkRecord.id, ChildChunkRecord.content_hash).where(
                     ChildChunkRecord.generation_id == generation_id,

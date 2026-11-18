@@ -49,6 +49,26 @@ def test_qdrant_generation_round_trip(qdrant_url):
     client.close()
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [("euclid", models.Distance.EUCLID), ("dot", models.Distance.DOT)],
+)
+def test_qdrant_uses_configured_non_default_distance(qdrant_url, configured, expected):
+    store = QdrantGenerationStore(
+        QdrantSettings(url=qdrant_url, distance=configured)
+    )
+    generation_id = f"distance-{configured}"
+    store.create(generation_id, dimension=3)
+
+    collection = store.client.get_collection(store.collection_name(generation_id))
+    vectors = collection.config.params.vectors
+    assert isinstance(vectors, models.VectorParams)
+    assert vectors.distance == expected
+
+    store.delete(generation_id)
+    store.client.close()
+
+
 def test_qdrant_upsert_batches_large_generations(monkeypatch):
     store = QdrantGenerationStore(QdrantSettings(url="http://127.0.0.1:1"))
     chunks = three_test_chunks() * 43

@@ -23,11 +23,19 @@ and the explicit knowledge Q&A workbook are parsed. `evaluation.jsonl` is held o
 is never ingested.
 
 `ask` prints the generation ID, `Status: ok` or `Status: degraded`, the streamed answer,
-and citation labels with document/parent lineage. `verify` emits one JSON object with
-structured checks for 100 ordinary documents (including extension and scanned/text PDF
-counts), exactly 1000 knowledge Q&A rows, active generation, parent/child integrity,
-Qdrant dimension/point count, and BM25 manifest/child count. It exits 1 when any check
-fails.
+and citation labels with document/parent lineage. `verify` emits one JSON object on
+**stdout only** with structured checks for exactly 25 documents per supported extension,
+20 text PDFs plus 5 scanned PDFs, exactly 1000 knowledge Q&A rows, active generation,
+vector-space compatibility, parent/child integrity, exact Qdrant/BM25 child IDs, and
+dimension/distance/counts. Consume stdout as JSON and keep diagnostics on stderr; do not
+concatenate other output into a JSON parser. The command exits 1 when any check fails,
+including malformed configuration.
+
+Each generation persists a fingerprint of embedding provider, model, dimension, and
+Qdrant distance. Rebuild after changing any of them. A pre-fingerprint generation is
+considered unknown: it cannot supply reusable vectors and cannot be queried or verified
+as compatible. Unchanged content is reused only when both content hash and fingerprint
+match; activation remains atomic.
 
 ## Fake-model development
 
@@ -85,6 +93,28 @@ RUN_INTEGRATION=1 uv run pytest tests/integration -m "not bailian" -v
 
 If `QDRANT_BINARY` is unset, the fixture uses Docker with `qdrant/qdrant:1.15.4`.
 Integration tests otherwise skip unless `RUN_INTEGRATION=1`.
+
+## Storage trust, footprint, paths, and retention
+
+BM25 state contains Python pickle data. Treat every `RAG_STATE_DIR/bm25` directory as
+trusted, application-owned state: never load a downloaded, user-supplied, or otherwise
+untrusted BM25 directory, and do not grant untrusted users write access to it.
+
+A full rebuild of the supplied corpus currently transfers approximately **264 MB** of
+document text to the embedding provider. Allow for that transfer footprint in network
+capacity, timeout, and cost planning; exact-fingerprint reuse avoids resending unchanged
+chunks on subsequent compatible rebuilds.
+
+On Windows, native OCR/Qdrant tools and temporary files can exceed legacy path limits.
+If this occurs, use a short working/state path such as `C:\rag` and set
+`RAG_STATE_DIR=C:\rag-state` (and place `QDRANT_BINARY` on a short path). A `subst`
+drive mapping to the repository is another way to run the same commands through a short
+path.
+
+SQLite rows for retired generations, their Qdrant collections, and their BM25 directories
+are retained after activation. No automatic lifecycle cleanup runs in this phase, so disk
+usage grows with each generation. Retention and deletion policy must be handled by a later,
+explicit lifecycle phase rather than deleting the active generation's dependencies.
 
 Complete non-Bailian core checks:
 

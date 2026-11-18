@@ -127,13 +127,17 @@ class _CitationStreamFilter:
         return "".join(output)
 
     def finish(self) -> str:
-        if self._pending:
+        pending = self._pending
+        self._pending = ""
+        if pending == "[":
+            # A lone terminal bracket is literal text, not a citation prefix.
+            return "["
+        if pending:
             logger.warning(
                 "Removed incomplete citation %s from generated answer for generation %s",
-                self._pending,
+                pending,
                 self._generation_id,
             )
-            self._pending = ""
         return ""
 
 

@@ -42,6 +42,10 @@ class IndexGenerationRecord(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
+    # NULL deliberately denotes an unknown legacy vector space, never compatibility.
+    vector_space_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
 
 
 class GenerationDocumentRecord(Base):

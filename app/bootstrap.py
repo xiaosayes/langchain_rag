@@ -14,6 +14,7 @@ from app.config import AppSettings
 from app.db.session import create_session_factory
 from app.indexing.builder import IndexBuilder
 from app.indexing.repository import IndexRepository
+from app.indexing.vector_space import VectorSpace
 from app.models.bailian import (
     BailianEmbeddings,
     BailianReranker,
@@ -146,6 +147,7 @@ def build_index_builder(settings: AppSettings) -> IndexBuilder:
         bm25_root=state_directory() / "bm25",
         embeddings=cast(Any, embeddings),
         chunk_settings=settings.chunk,
+        vector_space=VectorSpace.from_settings(settings),
     )
 
 
@@ -161,5 +163,7 @@ def build_rag_service(settings: AppSettings) -> RAGService:
         embeddings=cast(BailianEmbeddings, embeddings),
         reranker=cast(BailianReranker, reranker),
         retrieval_settings=settings.retrieval,
+        vector_space=VectorSpace.from_settings(settings),
+        rerank_candidate_count=settings.rerank.candidate_count,
     )
     return RAGService(chat_model, retrieval, repository)

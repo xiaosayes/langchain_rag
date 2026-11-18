@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import pytest
 from sqlalchemy import select
@@ -88,6 +89,36 @@ def test_second_generation_reuses_unchanged_vectors(index_builder, fake_embeddin
             top_k=2,
         )
     } == {"差旅标准为500元", "年假为15天"}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("provider", "other-provider"), ("model", "other-model"), ("distance", "dot")],
+)
+def test_vector_space_change_forces_full_reembedding_without_old_fetch(
+    index_builder, fake_embeddings, monkeypatch, field, value
+):
+    documents = {"doc-a": parsed_blocks("doc-a", "差旅标准为500元")}
+    first = index_builder.build(documents)
+    fake_embeddings.embedded_texts.clear()
+    index_builder.vector_space = replace(index_builder.vector_space, **{field: value})
+    if field == "distance":
+        index_builder.qdrant._settings = index_builder.qdrant._settings.model_copy(
+            update={"distance": value}
+        )
+    fetched = []
+    original_fetch = index_builder.qdrant.fetch_vectors
+
+    def record_fetch(generation_id, child_ids):
+        fetched.append(generation_id)
+        return original_fetch(generation_id, child_ids)
+
+    monkeypatch.setattr(index_builder.qdrant, "fetch_vectors", record_fetch)
+    second = index_builder.build(documents)
+
+    assert second != first
+    assert fake_embeddings.embedded_texts == ["差旅标准为500元"]
+    assert first not in fetched
 
 
 def test_bm25_validation_failure_preserves_active_generation_and_artifacts(

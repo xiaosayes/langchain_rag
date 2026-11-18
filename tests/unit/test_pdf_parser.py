@@ -4,7 +4,7 @@ import fitz
 import pytest
 
 from app.ingestion.ocr import OCRProcessingError
-from app.ingestion.pdf import PDFParser
+from app.ingestion.pdf import PDFParser, has_usable_text_layer
 from app.ingestion.registry import ParserRegistry
 from app.mockgen.catalog import build_catalog
 
@@ -67,6 +67,37 @@ def test_page_with_at_least_20_meaningful_characters_skips_ocr(tmp_path):
     assert [block.location.page for block in blocks] == [1, 2]
     assert "This page has at least twenty characters." in blocks[0].text
     assert "每天500元" in blocks[1].text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "..............................",
+        " \n\t" * 20,
+        "abcdefghijklmnopqrstuvwxyz\ufffd\ufffd\ufffd\ufffd",
+        "\x00abcdefghijklmnopqrstuvwxyz",
+    ],
+)
+def test_corrupted_or_non_meaningful_text_layer_is_not_usable(text):
+    assert not has_usable_text_layer(text)
+
+
+def test_ocr_is_selected_for_corrupted_long_text_layer(tmp_path, monkeypatch):
+    path = tmp_path / "corrupt.pdf"
+    with fitz.open() as document:
+        document.new_page()
+        document.save(path)
+    monkeypatch.setattr(
+        fitz.Page,
+        "get_text",
+        lambda self, *args, **kwargs: "abcdefghijklmnopqrstuvwxyz\ufffd\ufffd\ufffd\ufffd",
+    )
+    ocr = FakeOCR()
+
+    blocks = PDFParser(ocr=ocr).parse(path, "corrupt")
+
+    assert ocr.calls == 1
+    assert "每天500元" in blocks[0].text
 
 
 def test_default_engine_is_created_only_when_ocr_is_required(tmp_path, monkeypatch):

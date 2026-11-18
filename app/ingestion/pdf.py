@@ -11,6 +11,21 @@ _MINIMUM_TEXT_CHARACTERS = 20
 _OCR_DPI = 200
 
 
+def has_usable_text_layer(text: str) -> bool:
+    """Require meaningful characters and reject common corrupted extraction layers."""
+    meaningful = sum(character.isalnum() for character in text)
+    corrupted = sum(
+        character == "\ufffd"
+        or (not character.isspace() and ord(character) < 32)
+        for character in text
+    )
+    return (
+        meaningful >= _MINIMUM_TEXT_CHARACTERS
+        and "\x00" not in text
+        and corrupted / max(len(text), 1) <= 0.05
+    )
+
+
 class PDFParser:
     suffixes: tuple[str, ...] = (".pdf",)
 
@@ -28,7 +43,7 @@ class PDFParser:
         with fitz.open(path) as document:
             for page_index, page in enumerate(document):
                 extracted = page.get_text("text").strip()
-                if len(extracted) >= _MINIMUM_TEXT_CHARACTERS:
+                if has_usable_text_layer(extracted):
                     text = extracted
                 else:
                     pixmap = page.get_pixmap(dpi=_OCR_DPI)

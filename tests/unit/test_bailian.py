@@ -9,6 +9,7 @@ from app.models.bailian import (
     EMBEDDING_PATH,
     RERANK_PATH,
     BailianEmbeddings,
+    BailianRequestError,
     BailianReranker,
     BailianResponseError,
     create_chat_model,
@@ -148,10 +149,11 @@ def test_embeddings_do_not_retry_400(monkeypatch):
     )
     sleeps = []
 
-    with pytest.raises(httpx.HTTPStatusError) as error:
+    with pytest.raises(BailianRequestError, match="model|parameters") as error:
         BailianEmbeddings(settings, sleep=sleeps.append).embed_query("query")
 
-    assert error.value.response.status_code == 400
+    assert "bad request" not in str(error.value)
+    assert "unit-test-secret" not in str(error.value)
     assert route.call_count == 1
     assert sleeps == []
 
@@ -181,9 +183,48 @@ def test_embeddings_retry_read_timeout_but_not_connect_error(monkeypatch):
     assert len(sleeps) == 1
 
     route.mock(side_effect=httpx.ConnectError("connection failed"))
-    with pytest.raises(httpx.ConnectError):
+    with pytest.raises(BailianRequestError, match="connect|network"):
         BailianEmbeddings(settings, sleep=sleeps.append).embed_query("query")
     assert route.call_count == 3
+
+
+@respx.mock
+def test_embeddings_401_is_sanitized_actionable_and_not_retried(monkeypatch):
+    settings = make_settings(monkeypatch)
+    route = respx.post(settings.embedding.base_url + EMBEDDING_PATH).mock(
+        return_value=httpx.Response(401, json={"message": "secret backend detail"})
+    )
+    sleeps = []
+
+    with pytest.raises(BailianRequestError, match="DASHSCOPE_API_KEY") as error:
+        BailianEmbeddings(settings, sleep=sleeps.append).embed_query("query")
+
+    assert route.call_count == 1
+    assert sleeps == []
+    assert "secret backend detail" not in str(error.value)
+    assert "unit-test-secret" not in str(error.value)
+
+
+@respx.mock
+@pytest.mark.parametrize("non_finite", ["NaN", "Infinity", "-Infinity"])
+def test_embeddings_reject_non_finite_components_from_raw_json(
+    monkeypatch, non_finite
+):
+    settings = make_settings(monkeypatch)
+    vector = "[" + ",".join(["0.0"] * 1023 + [non_finite]) + "]"
+    content = (
+        '{"output":{"embeddings":[{"text_index":0,"embedding":'
+        + vector
+        + "}]}}"
+    )
+    respx.post(settings.embedding.base_url + EMBEDDING_PATH).mock(
+        return_value=httpx.Response(
+            200, content=content, headers={"Content-Type": "application/json"}
+        )
+    )
+
+    with pytest.raises(BailianResponseError):
+        BailianEmbeddings(settings).embed_query("query")
 
 
 @respx.mock

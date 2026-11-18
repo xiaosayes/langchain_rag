@@ -81,6 +81,10 @@ class PersistentBM25:
             state = pickle.load(state_file)
         return cls(directory, state["chunks"], state["index"])
 
+    @property
+    def child_ids(self) -> frozenset[str]:
+        return frozenset(chunk.id for chunk in self._chunks)
+
     def search(self, query: str, top_k: int) -> list[SearchHit]:
         # A stale in-memory index must not make a removed generation searchable.
         if not (self._generation_dir / _MANIFEST_NAME).is_file():

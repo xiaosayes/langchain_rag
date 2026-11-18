@@ -3,6 +3,7 @@
 import asyncio
 import math
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,8 +14,11 @@ from langchain_openai import ChatOpenAI
 from app.config import AppSettings
 from app.models.retry import (
     AsyncSleep,
+    Monotonic,
+    RetryJitter,
     SyncSleep,
     apost_with_retries,
+    full_jitter,
     post_with_retries,
 )
 
@@ -30,8 +34,38 @@ class BailianConfigurationError(BailianError):
     """Raised when required Bailian credentials are absent."""
 
 
+class BailianRequestError(BailianError):
+    """Raised for sanitized HTTP, authentication, and connection failures."""
+
+
 class BailianResponseError(BailianError):
     """Raised when a successful Bailian response violates its contract."""
+
+
+@contextmanager
+def _translate_http_errors(operation: str):
+    try:
+        yield
+    except httpx.HTTPStatusError as error:
+        status = error.response.status_code
+        if status == 401:
+            message = (
+                f"Bailian authentication failed for {operation} (HTTP 401); "
+                "check DASHSCOPE_API_KEY"
+            )
+        elif status == 400:
+            message = (
+                f"Bailian rejected the {operation} request (HTTP 400); "
+                "check the configured model and request parameters"
+            )
+        else:
+            message = f"Bailian {operation} request failed (HTTP {status})"
+        raise BailianRequestError(message) from error
+    except httpx.RequestError as error:
+        raise BailianRequestError(
+            f"Could not connect to Bailian for {operation}; "
+            "check network access and the configured base_url"
+        ) from error
 
 
 @dataclass(frozen=True)
@@ -69,6 +103,8 @@ class BailianEmbeddings(Embeddings):
         *,
         sleep: SyncSleep = time.sleep,
         async_sleep: AsyncSleep = asyncio.sleep,
+        jitter: RetryJitter = full_jitter,
+        monotonic: Monotonic = time.monotonic,
     ) -> None:
         self.settings = settings
         self.dimension = settings.embedding.dimension
@@ -76,6 +112,8 @@ class BailianEmbeddings(Embeddings):
         self._headers = _authorization_headers(settings)
         self._sleep = sleep
         self._async_sleep = async_sleep
+        self._jitter = jitter
+        self._monotonic = monotonic
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
@@ -83,14 +121,20 @@ class BailianEmbeddings(Embeddings):
         with httpx.Client(timeout=self.settings.embedding.timeout_seconds) as client:
             for start in range(0, len(texts), batch_size):
                 batch = texts[start : start + batch_size]
-                response = post_with_retries(
-                    client,
-                    self._url,
-                    json=self._request_payload(batch),
-                    headers=self._headers,
-                    max_retries=self.settings.embedding.max_retries,
-                    sleep=self._sleep,
-                )
+                with _translate_http_errors("embedding"):
+                    response = post_with_retries(
+                        client,
+                        self._url,
+                        json=self._request_payload(batch),
+                        headers=self._headers,
+                        max_retries=self.settings.embedding.max_retries,
+                        sleep=self._sleep,
+                        jitter=self._jitter,
+                        total_deadline_seconds=(
+                            self.settings.embedding.retry_total_deadline_seconds
+                        ),
+                        monotonic=self._monotonic,
+                    )
                 vectors.extend(self._parse_response(response, len(batch)))
         return vectors
 
@@ -102,14 +146,20 @@ class BailianEmbeddings(Embeddings):
         ) as client:
             for start in range(0, len(texts), batch_size):
                 batch = texts[start : start + batch_size]
-                response = await apost_with_retries(
-                    client,
-                    self._url,
-                    json=self._request_payload(batch),
-                    headers=self._headers,
-                    max_retries=self.settings.embedding.max_retries,
-                    sleep=self._async_sleep,
-                )
+                with _translate_http_errors("embedding"):
+                    response = await apost_with_retries(
+                        client,
+                        self._url,
+                        json=self._request_payload(batch),
+                        headers=self._headers,
+                        max_retries=self.settings.embedding.max_retries,
+                        sleep=self._async_sleep,
+                        jitter=self._jitter,
+                        total_deadline_seconds=(
+                            self.settings.embedding.retry_total_deadline_seconds
+                        ),
+                        monotonic=self._monotonic,
+                    )
                 vectors.extend(self._parse_response(response, len(batch)))
         return vectors
 
@@ -158,7 +208,9 @@ class BailianEmbeddings(Embeddings):
                 vector = [float(value) for value in embedding]
             except (TypeError, ValueError) as exception:
                 raise error from exception
-            if len(vector) != self.dimension:
+            if len(vector) != self.dimension or not all(
+                math.isfinite(component) for component in vector
+            ):
                 raise error
             vectors[text_index] = vector
 
@@ -176,17 +228,24 @@ class BailianReranker:
         *,
         sleep: SyncSleep = time.sleep,
         async_sleep: AsyncSleep = asyncio.sleep,
+        jitter: RetryJitter = full_jitter,
+        monotonic: Monotonic = time.monotonic,
     ) -> None:
         self.settings = settings
         self._url = settings.rerank.base_url.rstrip("/") + RERANK_PATH
         self._headers = _authorization_headers(settings)
         self._sleep = sleep
         self._async_sleep = async_sleep
+        self._jitter = jitter
+        self._monotonic = monotonic
 
     def rerank(
         self, query: str, documents: list[str], top_n: int
     ) -> list[RerankResult]:
-        with httpx.Client(timeout=self.settings.rerank.timeout_seconds) as client:
+        with (
+            httpx.Client(timeout=self.settings.rerank.timeout_seconds) as client,
+            _translate_http_errors("rerank"),
+        ):
             response = post_with_retries(
                 client,
                 self._url,
@@ -194,6 +253,11 @@ class BailianReranker:
                 headers=self._headers,
                 max_retries=self.settings.rerank.max_retries,
                 sleep=self._sleep,
+                jitter=self._jitter,
+                total_deadline_seconds=(
+                    self.settings.rerank.retry_total_deadline_seconds
+                ),
+                monotonic=self._monotonic,
             )
         return self._parse_response(response, len(documents), top_n)
 
@@ -203,14 +267,20 @@ class BailianReranker:
         async with httpx.AsyncClient(
             timeout=self.settings.rerank.timeout_seconds
         ) as client:
-            response = await apost_with_retries(
-                client,
-                self._url,
-                json=self._request_payload(query, documents, top_n),
-                headers=self._headers,
-                max_retries=self.settings.rerank.max_retries,
-                sleep=self._async_sleep,
-            )
+            with _translate_http_errors("rerank"):
+                response = await apost_with_retries(
+                    client,
+                    self._url,
+                    json=self._request_payload(query, documents, top_n),
+                    headers=self._headers,
+                    max_retries=self.settings.rerank.max_retries,
+                    sleep=self._async_sleep,
+                    jitter=self._jitter,
+                    total_deadline_seconds=(
+                        self.settings.rerank.retry_total_deadline_seconds
+                    ),
+                    monotonic=self._monotonic,
+                )
         return self._parse_response(response, len(documents), top_n)
 
     def _request_payload(

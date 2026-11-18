@@ -185,6 +185,7 @@ def parsed_blocks(document_id: str, text: str) -> list[ParsedBlock]:
 def index_builder(tmp_path: Path, qdrant_url: str, fake_embeddings):
     from app.indexing.builder import IndexBuilder
     from app.indexing.repository import IndexRepository
+    from app.indexing.vector_space import VectorSpace
 
     repository = IndexRepository(create_session_factory(tmp_path / "index.sqlite3"))
     qdrant = QdrantGenerationStore(QdrantSettings(url=qdrant_url))
@@ -198,6 +199,7 @@ def index_builder(tmp_path: Path, qdrant_url: str, fake_embeddings):
             child_size=40,
             child_overlap=5,
         ),
+        vector_space=VectorSpace("fake", "counting-v1", 8, "cosine"),
     )
 
 

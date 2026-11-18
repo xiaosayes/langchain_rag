@@ -221,3 +221,24 @@ async def test_unknown_split_citation_is_removed_and_known_citations_remain(
     assert "S99" in caplog.text
     assert "citation" in caplog.text.lower()
     assert chat.answer_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("suffix", "expected"),
+    [("[", "literal ["), ("[S", "literal "), ("[S12", "literal ")],
+)
+async def test_terminal_literal_bracket_survives_but_incomplete_citations_do_not(
+    suffix, expected
+):
+    chat = FakeStreamingChatModel(["literal ", suffix])
+    service = RAGService(
+        chat,
+        FakeRetrievalService(make_documents()),
+        object(),  # type: ignore[arg-type]
+    )
+    prepared = await service.prepare("question", [], "gen-test")
+
+    chunks = [chunk async for chunk in service.stream_answer(prepared)]
+
+    assert "".join(chunks) == expected

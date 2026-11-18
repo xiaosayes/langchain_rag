@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 from app.config import RetrievalSettings
 from app.domain.models import ParentChunk, SearchHit
 from app.indexing.repository import IndexRepository
+from app.indexing.vector_space import VectorSpace
 from app.models.bailian import BailianEmbeddings, BailianReranker
 from app.retrieval.bm25 import PersistentBM25
 from app.retrieval.qdrant_store import QdrantGenerationStore
@@ -99,6 +100,8 @@ class RetrievalService:
         embeddings: BailianEmbeddings,
         reranker: BailianReranker,
         retrieval_settings: RetrievalSettings,
+        vector_space: VectorSpace,
+        rerank_candidate_count: int = _RERANK_CANDIDATE_COUNT,
     ) -> None:
         self.repository = repository
         self.qdrant = qdrant
@@ -106,12 +109,23 @@ class RetrievalService:
         self.embeddings = embeddings
         self.reranker = reranker
         self.settings = retrieval_settings
+        self.vector_space = vector_space
+        self.rerank_candidate_count = rerank_candidate_count
 
     def load_bm25(self, generation_id: str) -> PersistentBM25:
         return PersistentBM25.load(self.bm25_root / generation_id)
 
     def _search_bm25(self, generation_id: str, query: str) -> list[SearchHit]:
         return self.load_bm25(generation_id).search(query, self.settings.bm25_top_k)
+
+    async def _search_dense(self, generation_id: str, query: str) -> list[SearchHit]:
+        vector = await self.embeddings.aembed_query(query)
+        return await asyncio.to_thread(
+            self.qdrant.search,
+            generation_id,
+            vector,
+            self.settings.dense_top_k,
+        )
 
     async def _rerank_or_original(
         self, query: str, candidates: list[SearchHit]
@@ -133,14 +147,11 @@ class RetrievalService:
         return ranked, False
 
     async def asearch(self, query: str, generation_id: str) -> RetrievalResult:
-        vector = await self.embeddings.aembed_query(query)
+        self.repository.require_compatible_vector_space(
+            generation_id, self.vector_space
+        )
         dense_result, bm25_result = await asyncio.gather(
-            asyncio.to_thread(
-                self.qdrant.search,
-                generation_id,
-                vector,
-                self.settings.dense_top_k,
-            ),
+            self._search_dense(generation_id, query),
             asyncio.to_thread(self._search_bm25, generation_id, query),
             return_exceptions=True,
         )
@@ -152,7 +163,7 @@ class RetrievalService:
 
         fused = reciprocal_rank_fusion(result_sets, self.settings.rrf_k)
         ranked, rerank_failed = await self._rerank_or_original(
-            query, fused[:_RERANK_CANDIDATE_COUNT]
+            query, fused[: self.rerank_candidate_count]
         )
         parents = self.repository.parents(
             generation_id, [hit.parent_id for hit in ranked]
