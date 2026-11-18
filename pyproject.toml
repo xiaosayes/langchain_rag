@@ -50,6 +50,7 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "ocr: tests that run real CPU PaddleOCR recognition",
     "bailian: real Bailian API smoke tests",
+    "integration: tests that run real Qdrant infrastructure",
 ]
 
 [[tool.mypy.overrides]]
