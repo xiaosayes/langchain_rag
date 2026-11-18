@@ -12,7 +12,10 @@ from docker.errors import DockerException
 from qdrant_client import QdrantClient
 from testcontainers.core.container import DockerContainer
 
-from app.domain.models import ChildChunk
+from app.config import ChunkSettings, QdrantSettings
+from app.db.session import create_session_factory
+from app.domain.models import ChildChunk, ParsedBlock, SourceLocation
+from app.retrieval.qdrant_store import QdrantGenerationStore
 
 
 def _free_local_port() -> int:
@@ -117,7 +120,9 @@ def qdrant_url() -> Iterator[str]:
             f"container startup failed: {type(exc).__name__}: {exc}"
         )
 
-    url = f"http://{container.get_container_host_ip()}:{container.get_exposed_port(6333)}"
+    url = (
+        f"http://{container.get_container_host_ip()}:{container.get_exposed_port(6333)}"
+    )
     try:
         client = QdrantClient(url=url, timeout=5)
         deadline = time.monotonic() + 60
@@ -133,6 +138,64 @@ def qdrant_url() -> Iterator[str]:
         yield url
     finally:
         container.stop()
+
+
+class CountingFakeEmbeddings:
+    """Deterministic embeddings that record only document embedding calls."""
+
+    dimension = 8
+
+    def __init__(self) -> None:
+        self.embedded_texts: list[str] = []
+
+    @classmethod
+    def _embed(cls, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        return [byte / 127.5 - 1 for byte in digest[: cls.dimension]]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.embedded_texts.extend(texts)
+        return [self._embed(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed(text)
+
+
+@pytest.fixture
+def fake_embeddings() -> CountingFakeEmbeddings:
+    return CountingFakeEmbeddings()
+
+
+def parsed_blocks(document_id: str, text: str) -> list[ParsedBlock]:
+    return [
+        ParsedBlock(
+            document_id=document_id,
+            sequence=0,
+            text=text,
+            location=SourceLocation(),
+            metadata={"source": f"{document_id}.txt"},
+        )
+    ]
+
+
+@pytest.fixture
+def index_builder(tmp_path: Path, qdrant_url: str, fake_embeddings):
+    from app.indexing.builder import IndexBuilder
+    from app.indexing.repository import IndexRepository
+
+    repository = IndexRepository(create_session_factory(tmp_path / "index.sqlite3"))
+    qdrant = QdrantGenerationStore(QdrantSettings(url=qdrant_url))
+    return IndexBuilder(
+        repository=repository,
+        qdrant=qdrant,
+        bm25_root=tmp_path / "bm25",
+        embeddings=fake_embeddings,
+        chunk_settings=ChunkSettings(
+            parent_size=80,
+            child_size=40,
+            child_overlap=5,
+        ),
+    )
 
 
 def three_test_chunks() -> list[ChildChunk]:
