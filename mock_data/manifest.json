@@ -288,7 +288,7 @@
       "id": "DOC-025",
       "relative_path": "corpus/DOC-025.docx",
       "scanned": false,
-      "sha256": "086b83a936e0839ead607c4a8266ae21483b62ee3fa85f86272b69f6efff3990",
+      "sha256": "86d2e9eef7948ed5dd9de15109793d73535df083257365bed95bc85097a75173",
       "source_path": "source/DOC-025.json",
       "version": "2.0"
     },
@@ -299,7 +299,7 @@
       "id": "DOC-026",
       "relative_path": "corpus/DOC-026.docx",
       "scanned": false,
-      "sha256": "15ccc8609acaf24463653c8627e8b98c70f745bc24c6a33283b3dcd89761e11f",
+      "sha256": "2e4e189d1616e38bd3d0bf95ce9eb73926f43b8468afcc462df203ad912413e0",
       "source_path": "source/DOC-026.json",
       "version": "3.0"
     },
@@ -310,7 +310,7 @@
       "id": "DOC-027",
       "relative_path": "corpus/DOC-027.docx",
       "scanned": false,
-      "sha256": "ee862982acd89e339ea2e4037311d69727195739102e3b6c46e58f6eac78fb28",
+      "sha256": "3dadad4c0d09f4eeb96e3cd151ed570f2e134d3906013c349b209baf0c91aadc",
       "source_path": "source/DOC-027.json",
       "version": "1.0"
     },
@@ -321,7 +321,7 @@
       "id": "DOC-028",
       "relative_path": "corpus/DOC-028.docx",
       "scanned": false,
-      "sha256": "f24e5a3bddbe269a5c29f9399f9dd8aef60b94ff62ca2f3f8ce23ba3ea49777f",
+      "sha256": "ede3ca1f8c00da31a77c60102e5773eb317bee49dfb62a37ed20d85333afe86b",
       "source_path": "source/DOC-028.json",
       "version": "2.0"
     },
@@ -332,7 +332,7 @@
       "id": "DOC-029",
       "relative_path": "corpus/DOC-029.docx",
       "scanned": false,
-      "sha256": "454c14e47894d83aee4fe8acdf1f9f7b7ae94a5b5267262873b23136d2e7cd8f",
+      "sha256": "15ec6393274ef6467d81e2c0b68d4d237ae9091c187efef6782da563b2cefab6",
       "source_path": "source/DOC-029.json",
       "version": "3.0"
     },
@@ -343,7 +343,7 @@
       "id": "DOC-030",
       "relative_path": "corpus/DOC-030.docx",
       "scanned": false,
-      "sha256": "8b03cee9398c6e59015cf6d164e7948a6254991b3247c688682ebe0cd78fe529",
+      "sha256": "be06e55bd874ebc9df17232c73d2f72d3cb7fcedecb735e1746a350e12f31205",
       "source_path": "source/DOC-030.json",
       "version": "1.0"
     },
@@ -354,7 +354,7 @@
       "id": "DOC-031",
       "relative_path": "corpus/DOC-031.docx",
       "scanned": false,
-      "sha256": "1d95decb1b439ea7ab7ccea3e08bcad19d47a7130e7254d94e61d4fc50f25786",
+      "sha256": "68f1ac1ded90f7558519ff867d7b67e511c532c3aa07c8776090263eea868d10",
       "source_path": "source/DOC-031.json",
       "version": "2.0"
     },
@@ -365,7 +365,7 @@
       "id": "DOC-032",
       "relative_path": "corpus/DOC-032.docx",
       "scanned": false,
-      "sha256": "df38daf5f6b88118208a670e16878db6eb011cfce45e6594788de6e0f86963e7",
+      "sha256": "39b243d1355cef38ce3d9c81fb11aff009778929828a3cf6734a23f1ee51991f",
       "source_path": "source/DOC-032.json",
       "version": "3.0"
     },
@@ -376,7 +376,7 @@
       "id": "DOC-033",
       "relative_path": "corpus/DOC-033.docx",
       "scanned": false,
-      "sha256": "026217c622cd7fec616a09cd466d2ac662df7c9567cde92a865ef77149f2865d",
+      "sha256": "1d4213cffb37b718b0ee626a393a06edb418839b2bf4f7ebc29de013bc09bda3",
       "source_path": "source/DOC-033.json",
       "version": "1.0"
     },
@@ -387,7 +387,7 @@
       "id": "DOC-034",
       "relative_path": "corpus/DOC-034.docx",
       "scanned": false,
-      "sha256": "0af6f2aa897b4455ecde378def3f373c61d1c5cd51d4a6d8b1ae3b51fc5ca2e6",
+      "sha256": "be7a59d2733354dd02ca51d6210753ef1aa72a25a393e2c055962683d6741bb1",
       "source_path": "source/DOC-034.json",
       "version": "2.0"
     },
@@ -398,7 +398,7 @@
       "id": "DOC-035",
       "relative_path": "corpus/DOC-035.docx",
       "scanned": false,
-      "sha256": "8b42326bda27dc7fa6a8d733091bea57406d10fad9b2f97874ccd88d3e5d7884",
+      "sha256": "7f14da3c734ce743489b2fe10e67f895ff1215bec17934dc7ef6de9bd80222a7",
       "source_path": "source/DOC-035.json",
       "version": "3.0"
     },
@@ -409,7 +409,7 @@
       "id": "DOC-036",
       "relative_path": "corpus/DOC-036.docx",
       "scanned": false,
-      "sha256": "26139b12941785d67af39c462398a1f36be8547bc6982542f7d83d179106a7b3",
+      "sha256": "43b87fc99c801ecd186cbb6bedf560395c6929c5253dcd6d9ab0f27ce5c461b1",
       "source_path": "source/DOC-036.json",
       "version": "1.0"
     },
@@ -420,7 +420,7 @@
       "id": "DOC-037",
       "relative_path": "corpus/DOC-037.docx",
       "scanned": false,
-      "sha256": "4638d6961b82c19ff5a453bbb2c57dfd7d50954905e2cdd2b2c4e524933918d1",
+      "sha256": "0508463adf80cc4afab6c3158d53430adfbd5c940e364e37143641748633a93d",
       "source_path": "source/DOC-037.json",
       "version": "2.0"
     },
@@ -431,7 +431,7 @@
       "id": "DOC-038",
       "relative_path": "corpus/DOC-038.docx",
       "scanned": false,
-      "sha256": "dc78294cb6122808597c916a0dee8432f9a01ba3534cfb4ffa60a3cec92bc1aa",
+      "sha256": "e2f099d1438b634eda78b839e02c65891613c220b8e9c7cac3712abcaf22213b",
       "source_path": "source/DOC-038.json",
       "version": "3.0"
     },
@@ -442,7 +442,7 @@
       "id": "DOC-039",
       "relative_path": "corpus/DOC-039.docx",
       "scanned": false,
-      "sha256": "b83f4d819d75a8851def701f162d657560d8eb53f4a2b55928be6f661a96cf3e",
+      "sha256": "d76e8626ead2afda9caad4bc8699ed5b6191ac8939284a7e0330ef625e0ad848",
       "source_path": "source/DOC-039.json",
       "version": "1.0"
     },
@@ -453,7 +453,7 @@
       "id": "DOC-040",
       "relative_path": "corpus/DOC-040.docx",
       "scanned": false,
-      "sha256": "48b88f178467d94ca472668e8ac20efc17f4c801ebce94b7aade645326e14d00",
+      "sha256": "19de85df57ee43281ad750523b00d30f35cb1c6d2e2560842d97effaf9a130b4",
       "source_path": "source/DOC-040.json",
       "version": "2.0"
     },
@@ -464,7 +464,7 @@
       "id": "DOC-041",
       "relative_path": "corpus/DOC-041.docx",
       "scanned": false,
-      "sha256": "b813a8493c54b60e73fe9594e696b7a06577d6722a7c009b4f522a9baf553c8f",
+      "sha256": "199dc135c6f27c9c204114e31224e9b8bce2b3edec550e05449d519066a2560c",
       "source_path": "source/DOC-041.json",
       "version": "3.0"
     },
@@ -475,7 +475,7 @@
       "id": "DOC-042",
       "relative_path": "corpus/DOC-042.docx",
       "scanned": false,
-      "sha256": "7fba9c94ca0282d347f1c66254416ac31557ce1f00dd7136be0cc741c97858bf",
+      "sha256": "8e6235d44b7aee9eb6aa3b0610b7d9c29bc65b22830738d039f75adefe9232d2",
       "source_path": "source/DOC-042.json",
       "version": "1.0"
     },
@@ -486,7 +486,7 @@
       "id": "DOC-043",
       "relative_path": "corpus/DOC-043.docx",
       "scanned": false,
-      "sha256": "7a4b58cebc1c0a01e3288ea7361f5d51099c9df00c267a546ce43d0102325973",
+      "sha256": "50425a74297eee7055454abc973e9152aaf9d84f2d67944cc50376c15b74327b",
       "source_path": "source/DOC-043.json",
       "version": "2.0"
     },
@@ -497,7 +497,7 @@
       "id": "DOC-044",
       "relative_path": "corpus/DOC-044.docx",
       "scanned": false,
-      "sha256": "b6fd9f7666c6e1409ae30e18b2e449044229b4954ce28d3f235884cc25c15a72",
+      "sha256": "156601384b1549710bb44a60e64236a959b3225260b5fbe361cbe166a772afa5",
       "source_path": "source/DOC-044.json",
       "version": "3.0"
     },
@@ -508,7 +508,7 @@
       "id": "DOC-045",
       "relative_path": "corpus/DOC-045.docx",
       "scanned": false,
-      "sha256": "a1f5556bff64c278e9f81c7f3a0a7f2c5696eecb8322f6a8e29c3f141cb47ad5",
+      "sha256": "3b6888e2796c0e99f10404d529078a51313d2b018b72e958abbdd9fd72e9da2a",
       "source_path": "source/DOC-045.json",
       "version": "1.0"
     },
@@ -519,7 +519,7 @@
       "id": "DOC-046",
       "relative_path": "corpus/DOC-046.docx",
       "scanned": false,
-      "sha256": "c852368f55539a3ebcee576c27f3d72eb2731c70cac90959fb835bb60a40906c",
+      "sha256": "2c60822c602923508aef59543a0e8e0450cfc8934e3cc64648d02b07f75ac7d0",
       "source_path": "source/DOC-046.json",
       "version": "2.0"
     },
@@ -530,7 +530,7 @@
       "id": "DOC-047",
       "relative_path": "corpus/DOC-047.docx",
       "scanned": false,
-      "sha256": "4acdbbe2cbfbb387e33b94f664b9bfae2943b84b5e7f32968e63936fecbe6982",
+      "sha256": "0b6476dfdae9a7ba46c19c699d8d9aa97ecfc31c7409e3c64b57e18bd795fbb7",
       "source_path": "source/DOC-047.json",
       "version": "3.0"
     },
@@ -541,7 +541,7 @@
       "id": "DOC-048",
       "relative_path": "corpus/DOC-048.docx",
       "scanned": false,
-      "sha256": "c52819d17d2fc96db410a805c6c2bf3faa17df4d2a7f6e3991feda3a8da3638f",
+      "sha256": "131efc161674e6bae3a06431342fe1d10b554a57b1a4d0d624d044c9dfb500a9",
       "source_path": "source/DOC-048.json",
       "version": "1.0"
     },
@@ -552,7 +552,7 @@
       "id": "DOC-049",
       "relative_path": "corpus/DOC-049.docx",
       "scanned": false,
-      "sha256": "a91ff5f124121ab394baef5f93e72097290d107fae19991020f094a0c2498b7f",
+      "sha256": "8ebf44c747a22211763e376ea088a229390fd07b0f9c1f13f91c6d3d265bf4a8",
       "source_path": "source/DOC-049.json",
       "version": "2.0"
     },
@@ -563,7 +563,7 @@
       "id": "DOC-050",
       "relative_path": "corpus/DOC-050.pdf",
       "scanned": false,
-      "sha256": "75492e6469a0ab0106411e6720a00d36ae8d2f7e17e76fc21db73a70a0aade28",
+      "sha256": "0c5e3c135e39bc59ebd7e34cad883939d4e3bdb1ebc4327bcb8fa4606b99c284",
       "source_path": "source/DOC-050.json",
       "version": "3.0"
     },
@@ -574,7 +574,7 @@
       "id": "DOC-051",
       "relative_path": "corpus/DOC-051.pdf",
       "scanned": false,
-      "sha256": "c8e654fcd3fe77aacafa14275269d20eb47ecb80a71e20bcccb9c305d85f0df9",
+      "sha256": "26b0381de2a4d3da238e91a665d341f8319a53ba9267f44693903da84a94f8ba",
       "source_path": "source/DOC-051.json",
       "version": "1.0"
     },
@@ -585,7 +585,7 @@
       "id": "DOC-052",
       "relative_path": "corpus/DOC-052.pdf",
       "scanned": false,
-      "sha256": "95bce83015de2000ff979f15cc172dc2037264e9c90af2b4b618a52bbc7d8f01",
+      "sha256": "29bbc15d9676b1a0603f78be3a1b41e4ad7ce4fc21bc6f7bb78edd6c0581430e",
       "source_path": "source/DOC-052.json",
       "version": "2.0"
     },
@@ -596,7 +596,7 @@
       "id": "DOC-053",
       "relative_path": "corpus/DOC-053.pdf",
       "scanned": false,
-      "sha256": "184ebe3226bc1b81621bbeef1ac419960179ba36b06a94deafa51e714a11c9b4",
+      "sha256": "d53ecf5c23e1e23c657cbef3c7b0aa21d1a0403cfb169e73f8a1e0268e1cdde2",
       "source_path": "source/DOC-053.json",
       "version": "3.0"
     },
@@ -607,7 +607,7 @@
       "id": "DOC-054",
       "relative_path": "corpus/DOC-054.pdf",
       "scanned": false,
-      "sha256": "9da2de760670583f00c79b533257aac4514bb66c291e5ecfbfede1f957850479",
+      "sha256": "8635372f5e574a480a169a8bf87f5404bb4d29ed054864d04002cd653c55431e",
       "source_path": "source/DOC-054.json",
       "version": "1.0"
     },
@@ -618,7 +618,7 @@
       "id": "DOC-055",
       "relative_path": "corpus/DOC-055.pdf",
       "scanned": false,
-      "sha256": "8fcfabcadc26924f32c7c894b622e78fce8da4e2fb6468c57b557459ec5bae69",
+      "sha256": "170ea0e11619362b9956f76526fcf9df73fe24725ee29538529f272a8ff99f67",
       "source_path": "source/DOC-055.json",
       "version": "2.0"
     },
@@ -629,7 +629,7 @@
       "id": "DOC-056",
       "relative_path": "corpus/DOC-056.pdf",
       "scanned": false,
-      "sha256": "9bf33bb9fc9981b9e91306ad9e8988b71b797ca8924881c0a1cc9219236b9a52",
+      "sha256": "0c890cfdcdcf6f4ccc9215eeebc49ff103e9df3edaa18396dbf4178a3f8a982a",
       "source_path": "source/DOC-056.json",
       "version": "3.0"
     },
@@ -640,7 +640,7 @@
       "id": "DOC-057",
       "relative_path": "corpus/DOC-057.pdf",
       "scanned": false,
-      "sha256": "fb3e30d2282ff43b089463293850ab5487cea8ff32831b0bd7faa5b865be4f58",
+      "sha256": "2d0372a8d23a36843a69db2e1d2f767e107b3557e7fea1323c64e2a8ebb52438",
       "source_path": "source/DOC-057.json",
       "version": "1.0"
     },
@@ -651,7 +651,7 @@
       "id": "DOC-058",
       "relative_path": "corpus/DOC-058.pdf",
       "scanned": false,
-      "sha256": "acf4356315b69fdc76258ce7bbce447203a030ee0493289d647b18a5edaeeef8",
+      "sha256": "8c2d991c010ee576abef1f9fafd059e3057d1f5bd726ee950aca5ff365bf3c73",
       "source_path": "source/DOC-058.json",
       "version": "2.0"
     },
@@ -662,7 +662,7 @@
       "id": "DOC-059",
       "relative_path": "corpus/DOC-059.pdf",
       "scanned": false,
-      "sha256": "668ec466f250ff587901d54e78373f66ae2e30f61ed0d46f56be437e7e1e2d27",
+      "sha256": "8bf7eb9bc1de09bc61adb9d3f30227a117b73e34fb95fbecb29b906b18f7e030",
       "source_path": "source/DOC-059.json",
       "version": "3.0"
     },
@@ -673,7 +673,7 @@
       "id": "DOC-060",
       "relative_path": "corpus/DOC-060.pdf",
       "scanned": false,
-      "sha256": "de32fed6c9341279028085601dace34ff2fd17a87c377b7dae5d0fcc352fc691",
+      "sha256": "1d54f167461b5542dd7def2fcfddef36a0f9cf131ef95e02b89f3a71089faac0",
       "source_path": "source/DOC-060.json",
       "version": "1.0"
     },
@@ -684,7 +684,7 @@
       "id": "DOC-061",
       "relative_path": "corpus/DOC-061.pdf",
       "scanned": false,
-      "sha256": "7cf73a0c8f67a9aca11bdc3c3ef11799ef67f931b634382f97c2b81ac65be5d8",
+      "sha256": "c8e84894bb930a4f5bdb1284f0ad455a6a3a67b923b8da483d4a14154d8d7f47",
       "source_path": "source/DOC-061.json",
       "version": "2.0"
     },
@@ -695,7 +695,7 @@
       "id": "DOC-062",
       "relative_path": "corpus/DOC-062.pdf",
       "scanned": false,
-      "sha256": "485104afc83ec1ce77859888811e5fa1128ac2144987a20ae9e7c4de8896325e",
+      "sha256": "f711c01b5cbb450de2b68dec3800c325118c9c136835ede56516be8df41058c6",
       "source_path": "source/DOC-062.json",
       "version": "3.0"
     },
@@ -706,7 +706,7 @@
       "id": "DOC-063",
       "relative_path": "corpus/DOC-063.pdf",
       "scanned": false,
-      "sha256": "b99fa426fc6516034de1370ac28c905d3bd51ed73d54eb165fbd538143a53beb",
+      "sha256": "c17e28c7ceadb3f0af25a070f96f6c415e2fad5398a6f821aa84b9c886df1173",
       "source_path": "source/DOC-063.json",
       "version": "1.0"
     },
@@ -717,7 +717,7 @@
       "id": "DOC-064",
       "relative_path": "corpus/DOC-064.pdf",
       "scanned": false,
-      "sha256": "95fa4ea65ee8d04f665c67d5d126b6b103da933b4e1ce8c37a9d8138eebea8ac",
+      "sha256": "f7c25e46463df6a75855acd4ec04b15d215676ff5d1358206f9d80b38eb97a03",
       "source_path": "source/DOC-064.json",
       "version": "2.0"
     },
@@ -728,7 +728,7 @@
       "id": "DOC-065",
       "relative_path": "corpus/DOC-065.pdf",
       "scanned": false,
-      "sha256": "fc3284878d7b7865d915fd46a7a88b7b133fe2623689e2b1158f65ffa37133df",
+      "sha256": "06d2c4005018b269a99b2ce0ac82f9ffc93ed9e7bbfa70c396e47abbbb89e380",
       "source_path": "source/DOC-065.json",
       "version": "3.0"
     },
@@ -739,7 +739,7 @@
       "id": "DOC-066",
       "relative_path": "corpus/DOC-066.pdf",
       "scanned": false,
-      "sha256": "a58b04459eff44b9df2c28218a158a88badce1778972ef2493b92935ae826554",
+      "sha256": "119a7cbe0ae6783b48afbfca8dc848edb99953607ee9ea8fab23b4c6ba58ca95",
       "source_path": "source/DOC-066.json",
       "version": "1.0"
     },
@@ -750,7 +750,7 @@
       "id": "DOC-067",
       "relative_path": "corpus/DOC-067.pdf",
       "scanned": false,
-      "sha256": "829a4ca7b4b964e8fb6306f197ad027e91cba8749f919bcd6f55cc531333483b",
+      "sha256": "7d955cf5d844a3ea2e45c497e4d69523f2d5737abbdb0c15af520b4f55695f03",
       "source_path": "source/DOC-067.json",
       "version": "2.0"
     },
@@ -761,7 +761,7 @@
       "id": "DOC-068",
       "relative_path": "corpus/DOC-068.pdf",
       "scanned": false,
-      "sha256": "402adb771c4f92a6d8c5ef5410fee6c580a1ac9f1263a5817486b981d32859c8",
+      "sha256": "312693ca92da0122d3ecdf1e585f6866cef38cb7c50d6f238cb16e5f4b0e9341",
       "source_path": "source/DOC-068.json",
       "version": "3.0"
     },
@@ -772,7 +772,7 @@
       "id": "DOC-069",
       "relative_path": "corpus/DOC-069.pdf",
       "scanned": false,
-      "sha256": "8808c80f05cb60e6b38ac848ba205a556e4f9d155e0e9b45a65bbb6475eb4d2f",
+      "sha256": "a7a6f105a3c4b412623eaf6b5bde00f1c85a096557293c23ea2317a28afd83e9",
       "source_path": "source/DOC-069.json",
       "version": "1.0"
     },
@@ -783,7 +783,7 @@
       "id": "DOC-070",
       "relative_path": "corpus/DOC-070.pdf",
       "scanned": true,
-      "sha256": "da59dbe3c8b54e999e40df3d36078fa8a15fc0f8b4e56bd376cefdc9f8af4d62",
+      "sha256": "bf567480149458379a6995ac0e2ae0b6a3cbe148c4a27eebb11191fc52b77cbd",
       "source_path": "source/DOC-070.json",
       "version": "2.0"
     },
@@ -794,7 +794,7 @@
       "id": "DOC-071",
       "relative_path": "corpus/DOC-071.pdf",
       "scanned": true,
-      "sha256": "b39176b9e4e53d85f09573b85048f2cb4da0460d13b2832613520faa04adeb05",
+      "sha256": "b1790827ea1c7420107be5f7a66861e9fc5f930f8224999cf7bd63f069a152b5",
       "source_path": "source/DOC-071.json",
       "version": "3.0"
     },
@@ -805,7 +805,7 @@
       "id": "DOC-072",
       "relative_path": "corpus/DOC-072.pdf",
       "scanned": true,
-      "sha256": "a155e23748fc83662a0eb7dccf50b1048357cc372017db6f069a2cae15901b83",
+      "sha256": "3efe7e0948a5eff690ab346e8592232f14ef10de8abdf3ae4908385aa047ae21",
       "source_path": "source/DOC-072.json",
       "version": "1.0"
     },
@@ -816,7 +816,7 @@
       "id": "DOC-073",
       "relative_path": "corpus/DOC-073.pdf",
       "scanned": true,
-      "sha256": "efe023e02e011e95373e8e96a5940f2ff68faec23251603e268f617816926e60",
+      "sha256": "14107ee495c2a7bd915617bfecb5a70d21a351542860af850f9f8a9efb2a07f4",
       "source_path": "source/DOC-073.json",
       "version": "2.0"
     },
@@ -827,7 +827,7 @@
       "id": "DOC-074",
       "relative_path": "corpus/DOC-074.pdf",
       "scanned": true,
-      "sha256": "4b8523eb51e47b4b609f3ac713056d22a63d200d35968cef89b54ffac34d636e",
+      "sha256": "af4baf234d9911fa2db11826be90d0a2a2c77ee15a5a3c42e50440e5e6c5f55b",
       "source_path": "source/DOC-074.json",
       "version": "3.0"
     },
@@ -838,7 +838,7 @@
       "id": "DOC-075",
       "relative_path": "corpus/DOC-075.xlsx",
       "scanned": false,
-      "sha256": "d35a964473b988a27d25f1b781b04586fd9ef97150984e0e25ad97528377654b",
+      "sha256": "133af067403806d16c5d3ff1116ca2feb40a3e9047f7f6114e9c04b189ce491c",
       "source_path": "source/DOC-075.json",
       "version": "1.0"
     },
@@ -849,7 +849,7 @@
       "id": "DOC-076",
       "relative_path": "corpus/DOC-076.xlsx",
       "scanned": false,
-      "sha256": "03b469598e3bbabe9071659ded3f91a40efb7d8b4a9aec26caf3958bd3056f65",
+      "sha256": "c41c0f36b9065e55be6e6811fb6ba87d782200fb5430a98d60b359c2fd571a80",
       "source_path": "source/DOC-076.json",
       "version": "2.0"
     },
@@ -860,7 +860,7 @@
       "id": "DOC-077",
       "relative_path": "corpus/DOC-077.xlsx",
       "scanned": false,
-      "sha256": "193a0b9677b524fb5c03291eb967393abcbb592d4dc991d4b62cf4090c31d205",
+      "sha256": "98b3de3e2825530957d2f4ba2af039ec78b16bd361845c228db4b27d20782f9e",
       "source_path": "source/DOC-077.json",
       "version": "3.0"
     },
@@ -871,7 +871,7 @@
       "id": "DOC-078",
       "relative_path": "corpus/DOC-078.xlsx",
       "scanned": false,
-      "sha256": "8b05407b93231fe6a34b6703e414eb6a9106c83ea5b457eae3a8c791f67415de",
+      "sha256": "d8148fca7755f7b56fd3b203e9c12470f52b2a53962a9661f3ffd6426ecb637c",
       "source_path": "source/DOC-078.json",
       "version": "1.0"
     },
@@ -882,7 +882,7 @@
       "id": "DOC-079",
       "relative_path": "corpus/DOC-079.xlsx",
       "scanned": false,
-      "sha256": "ae0eed51f2b345c83c1d532e7e20b0167746c6b391e70ea4ae972c0690149a7e",
+      "sha256": "040ee656b28e0626a71645704fdb0229efad6a88ebcd78f50edf942d93eb15cb",
       "source_path": "source/DOC-079.json",
       "version": "2.0"
     },
@@ -893,7 +893,7 @@
       "id": "DOC-080",
       "relative_path": "corpus/DOC-080.xlsx",
       "scanned": false,
-      "sha256": "64f7536d52b738bf48f83176b7cdc4f16b87970c66360d671225b2e45d9a8ff7",
+      "sha256": "8361367f2cca23add9719ec2ecdb9f0d18bef7aa962da78e908b48adf9f0f436",
       "source_path": "source/DOC-080.json",
       "version": "3.0"
     },
@@ -904,7 +904,7 @@
       "id": "DOC-081",
       "relative_path": "corpus/DOC-081.xlsx",
       "scanned": false,
-      "sha256": "afb76fa7c1d2b2b0cb5d3544cc679f0e9482785d1fed1e84c51241428259485e",
+      "sha256": "5cdad78b45418a083ab4379c50cb838b35748cb45a62922ebfd89e57332a2752",
       "source_path": "source/DOC-081.json",
       "version": "1.0"
     },
@@ -915,7 +915,7 @@
       "id": "DOC-082",
       "relative_path": "corpus/DOC-082.xlsx",
       "scanned": false,
-      "sha256": "6e49818c0463000365cd1654764ced0c9526bb20fb3bbba6c603921c368c75a6",
+      "sha256": "796faf0415f8c0375c3ad40dfb78f2fa0cadfb1f9136786f32c8d13d1ea0bea2",
       "source_path": "source/DOC-082.json",
       "version": "2.0"
     },
@@ -926,7 +926,7 @@
       "id": "DOC-083",
       "relative_path": "corpus/DOC-083.xlsx",
       "scanned": false,
-      "sha256": "41bcf116299a1116c99c505371f1e12c95f9eda57edc50c685ba69a3e7258589",
+      "sha256": "9d8526b82c0e45aa225c847dce259abb07035a2929078c1e343a3cff62d080f1",
       "source_path": "source/DOC-083.json",
       "version": "3.0"
     },
@@ -937,7 +937,7 @@
       "id": "DOC-084",
       "relative_path": "corpus/DOC-084.xlsx",
       "scanned": false,
-      "sha256": "f188986ecb6556369b9059f7f55dd1244f0acd44c7ceb9153c6e40b8772ab29d",
+      "sha256": "4d05fa38600d02e0479362d068925ae7e501f7cd9e187716e7d9ae644d8116b1",
       "source_path": "source/DOC-084.json",
       "version": "1.0"
     },
@@ -948,7 +948,7 @@
       "id": "DOC-085",
       "relative_path": "corpus/DOC-085.xlsx",
       "scanned": false,
-      "sha256": "271e6f723223a230dde3ad64d7d409ba2c2ebdf427f4f9019cdb16629af7be2c",
+      "sha256": "3f623990bd98c2482f35424b9812cda83e69592cb5f289514bc146c42685d1cb",
       "source_path": "source/DOC-085.json",
       "version": "2.0"
     },
@@ -959,7 +959,7 @@
       "id": "DOC-086",
       "relative_path": "corpus/DOC-086.xlsx",
       "scanned": false,
-      "sha256": "b1348a39edd397c560ab1e65599d5c96e9ecb411a817e5164713e34b1a9bcb9d",
+      "sha256": "ef95e08535e92ec83482f27baf3356803c23e450ff27f2422a9018ca6be9bc2b",
       "source_path": "source/DOC-086.json",
       "version": "3.0"
     },
@@ -970,7 +970,7 @@
       "id": "DOC-087",
       "relative_path": "corpus/DOC-087.xlsx",
       "scanned": false,
-      "sha256": "fdabba07e65e1c57318d6155c605b8c40c7e45264aca3bfa12624ae231584811",
+      "sha256": "27d17537c5d86a0a9eda4810ed47941600be3cfc29f097ab3318197f96e319ec",
       "source_path": "source/DOC-087.json",
       "version": "1.0"
     },
@@ -981,7 +981,7 @@
       "id": "DOC-088",
       "relative_path": "corpus/DOC-088.xlsx",
       "scanned": false,
-      "sha256": "2ba58157cb36c51551a004ec19ec21784123329c1968b2df69a01b00dfbca364",
+      "sha256": "2a090609f592c4fee452622d89237c59a1b1a7adb1e817dc73c40a8fe2533969",
       "source_path": "source/DOC-088.json",
       "version": "2.0"
     },
@@ -992,7 +992,7 @@
       "id": "DOC-089",
       "relative_path": "corpus/DOC-089.xlsx",
       "scanned": false,
-      "sha256": "784f61b71f9b778d6ccc0381807cd930ea0ef635df503be0f4c64d7228c32060",
+      "sha256": "09216464ca111d92318ac494ab9cf059397f5b245f02a3b8b9af259e5699382c",
       "source_path": "source/DOC-089.json",
       "version": "3.0"
     },
@@ -1003,7 +1003,7 @@
       "id": "DOC-090",
       "relative_path": "corpus/DOC-090.xlsx",
       "scanned": false,
-      "sha256": "75be38f4c8fbbeb751e2f948a7fccf0cdc5083f382e4f9362e94de08003f8bf2",
+      "sha256": "afbcde4f2747889c22b5263f2b9ec289e26153e7612d938259c9bca4087f6d27",
       "source_path": "source/DOC-090.json",
       "version": "1.0"
     },
@@ -1014,7 +1014,7 @@
       "id": "DOC-091",
       "relative_path": "corpus/DOC-091.xlsx",
       "scanned": false,
-      "sha256": "8c5ccacba9ef4dc88e2ba43bf6bf35bec3e7af596a47971e5bf612599a88328b",
+      "sha256": "41b869e9a9216b4731dc9f4b42d7abfe2bff9b5f5d8a3002867a64e0d374b16c",
       "source_path": "source/DOC-091.json",
       "version": "2.0"
     },
@@ -1025,7 +1025,7 @@
       "id": "DOC-092",
       "relative_path": "corpus/DOC-092.xlsx",
       "scanned": false,
-      "sha256": "9669857f8910db75b21c7baa25281e2ec88d042cbc078cdfbfb74c196e5f7deb",
+      "sha256": "122c5eab387fd5263e49e96216ceb3a02d74aa323f89ed6bf068382de92a5b2f",
       "source_path": "source/DOC-092.json",
       "version": "3.0"
     },
@@ -1036,7 +1036,7 @@
       "id": "DOC-093",
       "relative_path": "corpus/DOC-093.xlsx",
       "scanned": false,
-      "sha256": "dcbe0d21eb3f97a9c543f2bd3f6ad6edd68ad527671436bba2d75841de0f9a1a",
+      "sha256": "7b0b48decb48f27ebf57501c4c328b54f3df878ab4b3b070ce9ab35a20001ba2",
       "source_path": "source/DOC-093.json",
       "version": "1.0"
     },
@@ -1047,7 +1047,7 @@
       "id": "DOC-094",
       "relative_path": "corpus/DOC-094.xlsx",
       "scanned": false,
-      "sha256": "3c8c6d6447e2d9dc130b751e97bfeac8e64c82977be242c1403d7a12767a779d",
+      "sha256": "b3cebdfc7b961b2cf05c135029b05126548aa22d2a3e09fdd3c0d31326a23ab2",
       "source_path": "source/DOC-094.json",
       "version": "2.0"
     },
@@ -1058,7 +1058,7 @@
       "id": "DOC-095",
       "relative_path": "corpus/DOC-095.xlsx",
       "scanned": false,
-      "sha256": "767d8f259fd724ef8d304cc51ab31b1c1c1e898cfe861c675869b410d0d7bd12",
+      "sha256": "23490f0882eb2f5b094d40b77df1e42fd2fdc064c654786f3d0f9b46f5f89192",
       "source_path": "source/DOC-095.json",
       "version": "3.0"
     },
@@ -1069,7 +1069,7 @@
       "id": "DOC-096",
       "relative_path": "corpus/DOC-096.xlsx",
       "scanned": false,
-      "sha256": "0816377f10efd722a4b2d87ec7b210bef2008cd38d4e241e2977268358db40f8",
+      "sha256": "445f1425dc7be2a80762986cb6ab3289f8e8c9739211883820407a2a01e0da94",
       "source_path": "source/DOC-096.json",
       "version": "1.0"
     },
@@ -1080,7 +1080,7 @@
       "id": "DOC-097",
       "relative_path": "corpus/DOC-097.xlsx",
       "scanned": false,
-      "sha256": "aabef8872f1abbeb696ae109398c653446113abd4e31012b75321eb808a7395d",
+      "sha256": "796113855d04aa890cb9f167efc61ead4e99f076dcbeb439dd0e4f5098374a07",
       "source_path": "source/DOC-097.json",
       "version": "2.0"
     },
@@ -1091,7 +1091,7 @@
       "id": "DOC-098",
       "relative_path": "corpus/DOC-098.xlsx",
       "scanned": false,
-      "sha256": "8174c195effa5a2e0f95b5b2dc4ba2d22a4086e8fdd9bae016ddaa9c5e945076",
+      "sha256": "7d1b76c6149ed28a210924e480d4a3b82f329f005c35071563f9f667d8e28532",
       "source_path": "source/DOC-098.json",
       "version": "3.0"
     },
@@ -1102,7 +1102,7 @@
       "id": "DOC-099",
       "relative_path": "corpus/DOC-099.xlsx",
       "scanned": false,
-      "sha256": "a3428806c455b6823481a2726fb3a15507f52934174bed279a5f1f6d198cea3d",
+      "sha256": "39b44a1b09dee69c6c6a01c6916133ee590890ac0ba6785e45ea7719b5a2cecf",
       "source_path": "source/DOC-099.json",
       "version": "1.0"
     }

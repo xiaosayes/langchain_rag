@@ -14,7 +14,7 @@ _MARGIN = 42
 _FONT_SIZE = 10.5
 _LINE_HEIGHT = 24
 _LINES_PER_PAGE = 27
-_CJK_FONT_NAME = "china-s"
+_FONT_NAME = "NotoSansCJKsc"
 _IMAGE_SCALE = 2
 
 
@@ -94,23 +94,86 @@ def insert_selectable_chinese(
     for index, line in enumerate(lines):
         if not line:
             continue
-        fontname = (
-            _CJK_FONT_NAME
-            if any(ord(character) > 127 for character in line)
-            else "helv"
-        )
         page.insert_text(
             (_MARGIN, _MARGIN + index * _LINE_HEIGHT),
             line,
-            fontname=fontname,
+            fontname=_FONT_NAME,
+            fontfile=str(font_path),
             fontsize=_FONT_SIZE,
         )
     page.insert_text(
         (_MARGIN, _PAGE_HEIGHT - 30),
         f"Page {page_number} / {page_count}",
-        fontname="helv",
+        fontname=_FONT_NAME,
+        fontfile=str(font_path),
         fontsize=_FONT_SIZE,
     )
+
+
+def _update_to_unicode(
+    document: fitz.Document, pages: list[list[str]], font_path: Path
+) -> None:
+    """Map used glyph IDs back to their original, exact Unicode codepoints."""
+    font = fitz.Font(fontfile=str(font_path))
+    page_numbers = [
+        f"Page {number} / {len(pages)}" for number in range(1, len(pages) + 1)
+    ]
+    text = "\n".join(
+        [line for page_lines in pages for line in page_lines] + page_numbers
+    )
+    mappings: dict[int, str] = {}
+    for character in text:
+        if character == "\n":
+            continue
+        glyph_id = font.has_glyph(ord(character))
+        if glyph_id == 0:
+            raise ValueError(f"Pinned font has no glyph for U+{ord(character):04X}")
+        previous = mappings.get(glyph_id)
+        if previous is not None and previous != character:
+            raise ValueError("Pinned font maps two source characters to one glyph")
+        mappings[glyph_id] = character
+
+    items = sorted(mappings.items())
+    cmap = [
+        "/CIDInit /ProcSet findresource begin\n",
+        "12 dict begin\n",
+        "begincmap\n",
+        "/CIDSystemInfo <</Registry(Adobe)/Ordering(UCS)/Supplement 0>> def\n",
+        "/CMapName /Adobe-Identity-UCS def\n",
+        "/CMapType 2 def\n",
+        "1 begincodespacerange\n",
+        "<0000> <FFFF>\n",
+        "endcodespacerange\n",
+    ]
+    for start in range(0, len(items), 100):
+        chunk = items[start : start + 100]
+        cmap.append(f"{len(chunk)} beginbfchar\n")
+        cmap.extend(
+            f"<{glyph_id:04X}> <{character.encode('utf-16-be').hex().upper()}>\n"
+            for glyph_id, character in chunk
+        )
+        cmap.append("endbfchar\n")
+    cmap.extend(
+        (
+            "endcmap\n",
+            "CMapName currentdict /CMap defineresource pop\n",
+            "end\n",
+            "end\n",
+        )
+    )
+    stream = "".join(cmap).encode("ascii")
+
+    font_xrefs = {
+        font_info[0]
+        for page in document
+        for font_info in page.get_fonts(full=True)
+        if font_info[4] == _FONT_NAME
+    }
+    for font_xref in font_xrefs:
+        kind, value = document.xref_get_key(font_xref, "ToUnicode")
+        if kind != "xref":
+            raise RuntimeError("Embedded Noto font has no indirect ToUnicode map")
+        document.update_stream(int(value.split()[0]), stream)
 
 
 def render_pdf(spec: DocumentSpec, output_dir: Path, font_path: Path) -> Path:
@@ -144,5 +207,8 @@ def render_pdf(spec: DocumentSpec, output_dir: Path, font_path: Path) -> Path:
         document.set_metadata(
             {"title": spec.title, "creationDate": "D:20261118000000Z"}
         )
+        if not spec.scanned:
+            document.subset_fonts()
+            _update_to_unicode(document, pages, font_path)
         document.save(path, garbage=4, deflate=True)
     return path
