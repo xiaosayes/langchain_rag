@@ -9,6 +9,8 @@ from qdrant_client import QdrantClient, models
 from app.config import QdrantSettings
 from app.domain.models import ChildChunk, SearchHit
 
+_UPSERT_BATCH_SIZE = 128
+
 
 class QdrantGenerationStore:
     def __init__(self, settings: QdrantSettings) -> None:
@@ -49,23 +51,26 @@ class QdrantGenerationStore:
     ) -> None:
         if len(chunks) != len(vectors):
             raise ValueError("Each child chunk must have exactly one vector")
-        points = [
-            models.PointStruct(
-                id=self._point_id(chunk.id),
-                vector=list(vector),
-                payload={
-                    "child_id": chunk.id,
-                    "parent_id": chunk.parent_id,
-                    "document_id": chunk.document_id,
-                    "text": chunk.text,
-                    "metadata": chunk.metadata,
-                },
-            )
-            for chunk, vector in zip(chunks, vectors, strict=True)
-        ]
-        if points:
+        collection = self.collection_name(generation_id)
+        for start in range(0, len(chunks), _UPSERT_BATCH_SIZE):
+            batch_chunks = chunks[start : start + _UPSERT_BATCH_SIZE]
+            batch_vectors = vectors[start : start + _UPSERT_BATCH_SIZE]
+            points = [
+                models.PointStruct(
+                    id=self._point_id(chunk.id),
+                    vector=list(vector),
+                    payload={
+                        "child_id": chunk.id,
+                        "parent_id": chunk.parent_id,
+                        "document_id": chunk.document_id,
+                        "text": chunk.text,
+                        "metadata": chunk.metadata,
+                    },
+                )
+                for chunk, vector in zip(batch_chunks, batch_vectors, strict=True)
+            ]
             self.client.upsert(
-                collection_name=self.collection_name(generation_id),
+                collection_name=collection,
                 points=points,
                 wait=True,
             )

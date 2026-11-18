@@ -42,10 +42,26 @@ def test_qdrant_generation_round_trip(qdrant_url):
 
     store.create("gen-2", dimension=3)
     store.delete("gen-1")
-    remaining_collections = {
-        item.name for item in client.get_collections().collections
-    }
+    remaining_collections = {item.name for item in client.get_collections().collections}
     assert collection_name not in remaining_collections
     assert store.collection_name("gen-2") in remaining_collections
     store.delete("gen-2")
     client.close()
+
+
+def test_qdrant_upsert_batches_large_generations(monkeypatch):
+    store = QdrantGenerationStore(QdrantSettings(url="http://127.0.0.1:1"))
+    chunks = three_test_chunks() * 43
+    calls = []
+
+    def record_upsert(*, collection_name, points, wait):
+        calls.append((collection_name, list(points), wait))
+
+    monkeypatch.setattr(store.client, "upsert", record_upsert)
+
+    store.upsert("gen-batch", chunks, [[1.0, 0.0, 0.0]] * len(chunks))
+
+    assert [len(call[1]) for call in calls] == [128, 1]
+    assert {call[0] for call in calls} == {store.collection_name("gen-batch")}
+    assert all(call[2] is True for call in calls)
+    store.client.close()
