@@ -29,7 +29,10 @@ def _standalone_qdrant_url(binary: Path) -> Iterator[str]:
     if not binary.is_file():
         pytest.fail(f"QDRANT_BINARY does not exist: {binary}")
 
-    with tempfile.TemporaryDirectory(prefix="qdrant-1.15.4-") as temporary_dir:
+    # Qdrant can release Windows payload-index handles just after process exit.
+    with tempfile.TemporaryDirectory(
+        prefix="qdrant-1.15.4-", ignore_cleanup_errors=True
+    ) as temporary_dir:
         root = Path(temporary_dir)
         http_port = _free_local_port()
         grpc_port = _free_local_port()
