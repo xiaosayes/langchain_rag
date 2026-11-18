@@ -1,2 +1,16 @@
 .worktrees/
 .superpowers/
+.pi/subagents/
+.venv/
+.env
+var/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+frontend/node_modules/
+frontend/dist/

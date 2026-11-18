@@ -1,0 +1,36 @@
+model_provider: bailian
+llm:
+  model: deepseek_v4.1_flash_1017
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  temperature: 0.1
+  max_output_tokens: 2048
+  timeout_seconds: 60
+  max_retries: 3
+embedding:
+  model: text-embedding-v4
+  base_url: https://dashscope.aliyuncs.com
+  dimension: 1024
+  batch_size: 10
+  timeout_seconds: 60
+  max_retries: 3
+rerank:
+  model: qwen3-rerank
+  base_url: https://dashscope.aliyuncs.com
+  candidate_count: 30
+  timeout_seconds: 30
+  max_retries: 3
+qdrant:
+  url: http://127.0.0.1:16333
+  collection_prefix: enterprise_rag
+  distance: cosine
+chunk:
+  parent_size: 1000
+  child_size: 250
+  child_overlap: 50
+retrieval:
+  dense_top_k: 30
+  bm25_top_k: 30
+  rrf_k: 60
+  final_parent_count: 6
+  max_parents_per_document: 2
+  max_context_characters: 12000
