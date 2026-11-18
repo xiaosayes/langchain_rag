@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.mockgen.catalog import DocumentSpec, build_catalog
 from app.mockgen.pdf import render_pdf
+from app.mockgen.qa import generate_qa
 from app.mockgen.renderers import render_document
 
 
@@ -98,9 +99,13 @@ def main() -> None:
     parser.add_argument("--font", type=Path, required=True)
     arguments = parser.parse_args()
     manifest = generate_corpus(arguments.output, arguments.font)
+    qa_manifest = generate_qa(build_catalog(), arguments.output)
     print(
         f"Generated {manifest.total_documents} documents "
-        f"({manifest.scanned_pdf_count} scanned PDFs)."
+        f"({manifest.scanned_pdf_count} scanned PDFs), "
+        f"{qa_manifest.knowledge_qa_count} knowledge Q&A, and "
+        f"{qa_manifest.evaluation_count} evaluation questions "
+        f"({qa_manifest.answerable_count} answerable)."
     )
 
 
