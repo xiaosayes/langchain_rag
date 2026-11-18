@@ -109,9 +109,10 @@ class FakeChatModel(SimpleChatModel):
     ) -> str:
         del stop, run_manager, kwargs
         prompt = _message_text(messages[-1])
-        if "知识库来源：" not in prompt:
+        source_marker = "知识库来源：\n"
+        if source_marker not in prompt:
             return prompt
-        sources = prompt.split("知识库来源：", 1)[1]
+        sources = prompt.split(source_marker, 1)[1]
         if not sources.startswith("[S1]\n"):
             return INSUFFICIENT_CONTEXT_REFUSAL
         first_source = sources.removeprefix("[S1]\n").split("\n\n[S", 1)[0]

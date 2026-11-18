@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from langchain_core.documents import Document
 from openpyxl import Workbook
 from sqlalchemy import select
 from typer.testing import CliRunner
@@ -17,6 +18,8 @@ from app.db.session import create_session_factory
 from app.indexing.repository import IndexRepository
 from app.ingestion.text_office import QA_COLUMNS
 from app.models.bailian import BailianConfigurationError
+from app.rag.prompts import build_grounded_messages
+from app.rag.service import INSUFFICIENT_CONTEXT_REFUSAL
 from app.retrieval.qdrant_store import QdrantGenerationStore
 
 pytestmark = pytest.mark.integration
@@ -59,7 +62,11 @@ def cli_environment(
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     (corpus / "DOC-000.txt").write_text("差旅住宿标准为每天500元。", encoding="utf-8")
-    (corpus / "DOC-001.txt").write_text("年假为10天。", encoding="utf-8")
+    # Both ordinary sources carry the expected token so this composition test
+    # does not make semantic retrieval claims about non-semantic fake embeddings.
+    (corpus / "DOC-001.txt").write_text(
+        "年假为10天；差旅住宿标准为每天500元。", encoding="utf-8"
+    )
     (corpus / "evaluation.jsonl").write_text(
         json.dumps({"question": "held out", "answerable": False}) + "\n",
         encoding="utf-8",
@@ -111,6 +118,18 @@ def active_generation(environment: CLIEnvironment) -> str | None:
     return repository.active_generation()
 
 
+def test_fake_chat_answers_real_grounded_prompt():
+    messages = build_grounded_messages(
+        "差旅住宿标准是多少？",
+        [Document(page_content="差旅住宿标准为每天500元。")],
+    )
+
+    answer = FakeChatModel().invoke(messages).content
+
+    assert answer == "差旅住宿标准为每天500元。[S1]"
+    assert INSUFFICIENT_CONTEXT_REFUSAL not in answer
+
+
 def test_ingest_rebuild_and_ask_show_answer_status_and_citations(
     cli_environment: CLIEnvironment,
 ):
@@ -146,9 +165,11 @@ def test_ingest_rebuild_and_ask_show_answer_status_and_citations(
     )
     assert asked.exit_code == 0, asked.output
     assert "Status:" in asked.output
-    assert "500" in asked.output
-    assert "[S1]" in asked.output
     assert "Citations:" in asked.output
+    answer_section = asked.output.split("Citations:", 1)[0]
+    assert "500" in answer_section
+    assert "[S1]" in answer_section
+    assert INSUFFICIENT_CONTEXT_REFUSAL not in answer_section
     assert "DOC-000" in asked.output
     assert second in asked.output
 
@@ -308,3 +329,65 @@ def test_verify_reports_qdrant_dimension_and_bm25_manifest(cli_environment):
             ).all()
         )
     assert checks["bm25_manifest"]["actual"]["chunk_count"] == child_count
+
+
+def test_verify_reports_malformed_sqlite_as_json(cli_environment):
+    cli_environment.state.mkdir()
+    (cli_environment.state / "index.sqlite3").write_bytes(b"not a sqlite database")
+
+    result = runner.invoke(
+        cli_app,
+        [
+            "verify",
+            "--corpus",
+            str(cli_environment.corpus),
+            "--qa",
+            str(cli_environment.qa),
+        ],
+        env={"MODEL_PROVIDER": "fake", "APP_ENV": "test"},
+    )
+
+    assert result.exit_code == 1
+    report = json.loads(result.stdout)
+    assert report["ok"] is False
+    checks = {check["name"]: check for check in report["checks"]}
+    assert checks["active_generation"]["ok"] is False
+    assert "DatabaseError" in checks["active_generation"]["message"]
+    for name in ("parent_child_integrity", "qdrant_dimension", "bm25_manifest"):
+        assert checks[name]["ok"] is False
+        assert "not checked" in checks[name]["message"]
+
+
+def test_verify_reports_multiple_active_generations_as_json(cli_environment):
+    cli_environment.state.mkdir()
+    with sqlite3.connect(cli_environment.state / "index.sqlite3") as connection:
+        connection.execute(
+            "CREATE TABLE index_generations "
+            "(id VARCHAR PRIMARY KEY, status VARCHAR(16) NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO index_generations (id, status) VALUES (?, 'active')",
+            [("gen-a",), ("gen-b",)],
+        )
+
+    result = runner.invoke(
+        cli_app,
+        [
+            "verify",
+            "--corpus",
+            str(cli_environment.corpus),
+            "--qa",
+            str(cli_environment.qa),
+        ],
+        env={"MODEL_PROVIDER": "fake", "APP_ENV": "test"},
+    )
+
+    assert result.exit_code == 1
+    report = json.loads(result.stdout)
+    assert report["ok"] is False
+    checks = {check["name"]: check for check in report["checks"]}
+    assert checks["active_generation"]["ok"] is False
+    assert "MultipleResultsFound" in checks["active_generation"]["message"]
+    for name in ("parent_child_integrity", "qdrant_dimension", "bm25_manifest"):
+        assert checks[name]["ok"] is False
+        assert "not checked" in checks[name]["message"]

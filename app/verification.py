@@ -93,8 +93,40 @@ class CoreVerifier:
     def run(self) -> VerificationReport:
         """Return all check results; command exit policy belongs to the CLI."""
         checks = [self._check_corpus(), self._check_qa()]
-        repository = _repository()
-        generation_id = repository.active_generation()
+        try:
+            repository = _repository()
+            generation_id = repository.active_generation()
+        except Exception as error:  # noqa: BLE001 - storage failures are check data.
+            checks.append(
+                _error_check("active_generation", "one active generation", error)
+            )
+            checks.extend(
+                [
+                    VerificationCheck(
+                        name="parent_child_integrity",
+                        ok=False,
+                        expected="every child references a parent in the same generation/document",
+                        actual=None,
+                        message="not checked: active generation unavailable",
+                    ),
+                    VerificationCheck(
+                        name="qdrant_dimension",
+                        ok=False,
+                        expected=self.settings.embedding.dimension,
+                        actual=None,
+                        message="not checked: active generation unavailable",
+                    ),
+                    VerificationCheck(
+                        name="bm25_manifest",
+                        ok=False,
+                        expected="compatible active-generation manifest",
+                        actual=None,
+                        message="not checked: active generation unavailable",
+                    ),
+                ]
+            )
+            return VerificationReport(checks)
+
         checks.append(
             VerificationCheck(
                 name="active_generation",
@@ -108,33 +140,54 @@ class CoreVerifier:
                 ),
             )
         )
-        checks.append(self._check_parent_children(repository, generation_id))
-
-        qdrant = _qdrant(self.settings)
         try:
-            checks.append(self._check_qdrant(qdrant, repository, generation_id))
-        finally:
-            qdrant.client.close()
+            checks.append(self._check_parent_children(repository, generation_id))
+        except Exception as error:  # noqa: BLE001 - query failures are check data.
+            checks.append(
+                _error_check(
+                    "parent_child_integrity",
+                    "every child references a parent in the same generation/document",
+                    error,
+                )
+            )
+
+        try:
+            qdrant = _qdrant(self.settings)
+        except Exception as error:  # noqa: BLE001 - client failures are check data.
+            checks.append(
+                _error_check(
+                    "qdrant_dimension", self.settings.embedding.dimension, error
+                )
+            )
+        else:
+            try:
+                checks.append(self._check_qdrant(qdrant, repository, generation_id))
+            finally:
+                qdrant.client.close()
         checks.append(self._check_bm25(repository, generation_id))
         return VerificationReport(checks)
 
     def _check_corpus(self) -> VerificationCheck:
-        paths = ordinary_document_paths(self.corpus)
-        by_extension = {
-            suffix: sum(path.suffix.lower() == suffix for path in paths)
-            for suffix in sorted(_SUPPORTED_SUFFIXES)
-        }
-        actual: dict[str, Any] = {
-            "total": len(paths),
-            "by_extension": by_extension,
-        }
+        actual: dict[str, Any] = {}
         try:
+            paths = ordinary_document_paths(self.corpus)
+            by_extension = {
+                suffix: sum(path.suffix.lower() == suffix for path in paths)
+                for suffix in sorted(_SUPPORTED_SUFFIXES)
+            }
+            actual = {
+                "total": len(paths),
+                "by_extension": by_extension,
+            }
             actual["pdf"] = _pdf_counts(
                 [path for path in paths if path.suffix.lower() == ".pdf"]
             )
         except Exception as error:  # noqa: BLE001 - checks must report bad sources.
             return _error_check(
-                "ordinary_documents", EXPECTED_ORDINARY_DOCUMENTS, error, actual
+                "ordinary_documents",
+                EXPECTED_ORDINARY_DOCUMENTS,
+                error,
+                actual or None,
             )
         return VerificationCheck(
             name="ordinary_documents",
