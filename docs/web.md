@@ -14,8 +14,9 @@ uv sync
 npm --prefix frontend ci
 ```
 
-The supported no-Docker development hosts are Windows x86_64 and Ubuntu 22.04 x86_64.
-Install Qdrant from the official GitHub release API:
+The implemented no-Docker development targets are Windows x86_64 and Ubuntu 22.04
+x86_64. Only Windows installation/runtime has been exercised locally; Ubuntu 22.04
+execution is **NOT RUN**. Install Qdrant from the official GitHub release API:
 
 ```bash
 uv run python scripts/install_qdrant_binary.py
@@ -153,6 +154,9 @@ real key.
   successful answer. Cancellation and errors persist their terminal/partial state.
 - Feedback is stored locally by message ID. It is not sent to LangSmith or an external
   run-tracking service.
+- Acceptance covers sequential document mutations. Queued upload/delete supersession for
+  the same document is a known unresolved edge case; avoid relying on simultaneous
+  contradictory mutations until it is addressed from an actual deployment failure.
 
 ## Repeatable validation
 
@@ -183,13 +187,19 @@ Final local regressions:
 ```bash
 uv run pytest tests/unit -q
 RUN_INTEGRATION=1 QDRANT_BINARY="$PWD/var/qdrant/1.15.4/qdrant.exe" \
-  uv run pytest tests/integration -m "not bailian" -q
+  uv run pytest tests/integration -m "not bailian and not ocr" -q
 uv run ruff check .
 npm --prefix frontend run lint
 npm --prefix frontend run typecheck
 npm --prefix frontend test
 npm --prefix frontend run build
 ```
+
+The supported integration command excludes live Bailian and optional real PaddleOCR.
+Both remain **NOT RUN** in this phase: no real API key was used, and the optional
+`paddleocr` dependency is not installed. Ubuntu 22.04 installation/runtime also remains
+**NOT RUN**. The implementer report retains the failed unfiltered OCR attempt rather than
+presenting the supported command as full OCR acceptance.
 
 ## Security and deployment direction
 
