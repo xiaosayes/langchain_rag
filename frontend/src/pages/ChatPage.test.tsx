@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -8,6 +8,12 @@ const conversation = {
   title: "Existing conversation",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+};
+
+const secondConversation = {
+  ...conversation,
+  id: "c2",
+  title: "Second conversation",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -40,6 +46,29 @@ function streamResponse(
     status: 200,
     headers: { "Content-Type": "text/event-stream" },
   });
+}
+
+function deferredStreamResponse(signal?: AbortSignal, onAbort?: () => void) {
+  const encoder = new TextEncoder();
+  let streamController!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+      signal?.addEventListener("abort", () => onAbort?.());
+    },
+  });
+  return {
+    response: new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    }),
+    emit(chunk: string) {
+      streamController.enqueue(encoder.encode(chunk));
+    },
+    close() {
+      streamController.close();
+    },
+  };
 }
 
 function renderAt(path: string) {
@@ -90,7 +119,8 @@ describe("authentication and chat", () => {
     expect(JSON.stringify(window.localStorage)).not.toContain("secret-password");
   });
 
-  it("streams ordered tokens, citations, degraded state and submits feedback", async () => {
+  it("keeps deferred start/token/citation updates and enables feedback only after done", async () => {
+    const deferred = deferredStreamResponse();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/auth/me") {
@@ -101,15 +131,7 @@ describe("authentication and chat", () => {
       if (url === "/api/chat/stream") {
         expect(init?.credentials).toBe("same-origin");
         expect((init?.headers as Headers).get("X-CSRF-Token")).toBe("memory-csrf");
-        return Promise.resolve(
-          streamResponse([
-            "event: start\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"m1\",\"generation_id\":\"g1\",\"degraded\":true}\n\n",
-            "event: token\ndata: {\"content\":\"Grounded \"}\n\n",
-            "event: token\ndata: {\"content\":\"answer[S1]\"}\n\n",
-            "event: citations\ndata: {\"citations\":[{\"label\":\"S1\",\"document_id\":\"DOC-1\",\"parent_id\":\"P1\",\"text\":\"Source excerpt\",\"metadata\":{\"page\":3}}]}\n\n",
-            "event: done\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"m1\"}\n\n",
-          ]),
-        );
+        return Promise.resolve(deferred.response);
       }
       if (url === "/api/feedback") {
         expect(init?.method).toBe("POST");
@@ -129,9 +151,26 @@ describe("authentication and chat", () => {
 
     fireEvent.change(screen.getByLabelText("问题"), { target: { value: "What is grounded?" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await screen.findByRole("button", { name: "停止" });
+
+    await act(async () => {
+      deferred.emit(
+        "event: start\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"m1\",\"generation_id\":\"g1\",\"degraded\":true}\n\n" +
+        "event: token\ndata: {\"content\":\"Grounded answer[S1]\"}\n\n" +
+        "event: citations\ndata: {\"citations\":[{\"label\":\"S1\",\"document_id\":\"DOC-1\",\"parent_id\":\"P1\",\"text\":\"Source excerpt\",\"metadata\":{\"page\":3}}]}\n\n",
+      );
+      await Promise.resolve();
+    });
 
     expect(await screen.findByText(/Grounded answer/)).toBeInTheDocument();
     expect(screen.getByText("降级模式")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "有帮助" })).not.toBeInTheDocument();
+    await act(async () => {
+      deferred.emit("event: done\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"m1\"}\n\n");
+      deferred.close();
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("button", { name: "有帮助" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /S1 DOC-1/ }));
     expect(await screen.findByText("Source excerpt")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /引用元数据/ }));
@@ -174,6 +213,104 @@ describe("authentication and chat", () => {
     expect(await screen.findByText("Safe Markdown", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
     expect(document.querySelector("img[src=x]")).not.toBeInTheDocument();
+  });
+
+  it("aborts on route change and ignores completion from the old stream", async () => {
+    const aborted = vi.fn();
+    let deferred!: ReturnType<typeof deferredStreamResponse>;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/auth/me") return Promise.resolve(jsonResponse({ csrf_token: "csrf", expires_at: "tomorrow" }));
+      if (url === "/api/sessions") return Promise.resolve(jsonResponse([conversation, secondConversation]));
+      if (url === "/api/sessions/c1/messages") return Promise.resolve(jsonResponse([]));
+      if (url === "/api/sessions/c2/messages") {
+        return Promise.resolve(jsonResponse([{
+          id: "stored-c2",
+          role: "assistant",
+          content: "Second history",
+          citations: [],
+          degraded: false,
+          generation_id: "g1",
+          created_at: "2026-01-01T00:00:00Z",
+        }]));
+      }
+      if (url === "/api/chat/stream") {
+        deferred = deferredStreamResponse(init?.signal ?? undefined, aborted);
+        return Promise.resolve(deferred.response);
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/chat/c1");
+    await screen.findByRole("link", { name: "Second conversation" });
+
+    fireEvent.change(screen.getByLabelText("问题"), { target: { value: "Old stream" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await screen.findByRole("button", { name: "停止" });
+    await act(async () => {
+      deferred.emit(
+        "event: start\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"old-message\",\"generation_id\":\"g1\",\"degraded\":false}\n\n" +
+        "event: token\ndata: {\"content\":\"Old partial\"}\n\n",
+      );
+      await Promise.resolve();
+    });
+    expect(await screen.findByText("Old partial")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Second conversation" }));
+    await waitFor(() => expect(aborted).toHaveBeenCalledOnce());
+    expect(await screen.findByText("Second history")).toBeInTheDocument();
+    const sessionRequests = fetchMock.mock.calls.filter(([url]) => String(url) === "/api/sessions").length;
+
+    await act(async () => {
+      deferred.emit(
+        "event: token\ndata: {\"content\":\" stale token\"}\n\n" +
+        "event: done\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"old-message\"}\n\n",
+      );
+      deferred.close();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("heading", { name: "Second conversation" })).toBeInTheDocument();
+    expect(screen.queryByText(/stale token/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/sessions")).toHaveLength(sessionRequests);
+  });
+
+  it("prevents deletion of the active conversation during streaming", async () => {
+    const aborted = vi.fn();
+    let deferred!: ReturnType<typeof deferredStreamResponse>;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/auth/me") return Promise.resolve(jsonResponse({ csrf_token: "csrf", expires_at: "tomorrow" }));
+      if (url === "/api/sessions") return Promise.resolve(jsonResponse([conversation, secondConversation]));
+      if (url === "/api/sessions/c1/messages") return Promise.resolve(jsonResponse([]));
+      if (url === "/api/chat/stream") {
+        deferred = deferredStreamResponse(init?.signal ?? undefined, aborted);
+        return Promise.resolve(deferred.response);
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderAt("/chat/c1");
+    await screen.findByRole("link", { name: "Existing conversation" });
+
+    fireEvent.change(screen.getByLabelText("问题"), { target: { value: "Do not delete" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await screen.findByRole("button", { name: "停止" });
+    await act(async () => {
+      deferred.emit("event: start\ndata: {\"conversation_id\":\"c1\",\"message_id\":\"m-active\",\"generation_id\":\"g1\",\"degraded\":false}\n\n");
+      await Promise.resolve();
+    });
+
+    const deleteButton = screen.getByRole("button", { name: "删除 Existing conversation" });
+    expect(deleteButton).toBeDisabled();
+    fireEvent.click(deleteButton);
+    expect(screen.queryByText("删除这个会话？")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/sessions/c1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(aborted).not.toHaveBeenCalled();
+    deferred.close();
   });
 
   it("stops and aborts an active stream", async () => {

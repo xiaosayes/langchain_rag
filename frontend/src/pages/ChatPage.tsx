@@ -38,6 +38,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
@@ -79,7 +80,15 @@ export default function ChatPage() {
     };
   }, [conversationId]);
 
-  useEffect(() => () => streamController.current?.abort(), []);
+  useEffect(() => () => {
+    const controller = streamController.current;
+    if (controller) {
+      streamController.current = null;
+      controller.abort();
+      setStreaming(false);
+      setStreamingMessageId(null);
+    }
+  }, [conversationId]);
 
   if (!csrfToken) return null;
 
@@ -125,6 +134,7 @@ export default function ChatPage() {
   };
 
   const deleteConversation = async (id: string) => {
+    if (streaming && id === conversationId) return;
     setMutating(true);
     try {
       await apiFetch<void>(
@@ -149,6 +159,7 @@ export default function ChatPage() {
     setStreaming(true);
     const now = new Date().toISOString();
     const temporaryId = `temp-${Date.now()}`;
+    setStreamingMessageId(temporaryId);
     const optimisticAssistant: ChatMessage = {
       id: temporaryId,
       role: "assistant",
@@ -177,36 +188,45 @@ export default function ChatPage() {
     let answer = "";
     let assistantId = temporaryId;
     const updateAssistant = (update: Partial<ChatMessage>) => {
+      const targetId = assistantId;
       setMessages((current) =>
         current.map((message) =>
-          message.id === assistantId ? { ...message, ...update } : message,
+          message.id === targetId ? { ...message, ...update } : message,
         ),
       );
     };
+    const isCurrentStream = () =>
+      streamController.current === controller && !controller.signal.aborted;
     try {
       await streamChat(
         { conversation_id: conversationId, question: trimmed },
         {
           onStart: (event) => {
+            if (!isCurrentStream()) return;
             updateAssistant({
               id: event.message_id,
               degraded: event.degraded,
               generation_id: event.generation_id,
             });
             assistantId = event.message_id;
+            setStreamingMessageId(event.message_id);
           },
           onToken: (event) => {
+            if (!isCurrentStream()) return;
             answer += event.content;
             updateAssistant({ content: answer });
           },
           onCitations: (event) => {
+            if (!isCurrentStream()) return;
             updateAssistant({ citations: event.citations });
           },
           onDone: (event) => {
+            if (!isCurrentStream()) return;
             void loadConversations();
             if (!conversationId) navigate(`/chat/${event.conversation_id}`);
           },
           onError: (event) => {
+            if (!isCurrentStream()) return;
             updateAssistant({ error: event.message });
           },
         },
@@ -214,17 +234,21 @@ export default function ChatPage() {
         csrfToken,
       );
     } catch (caught) {
-      const stopped = caught instanceof DOMException && caught.name === "AbortError";
-      const text = stopped
-        ? "已停止，回答可能不完整"
-        : caught instanceof Error
-          ? caught.message
-          : "对话请求失败";
-      updateAssistant({ error: text });
+      if (streamController.current === controller) {
+        const stopped = controller.signal.aborted ||
+          (caught instanceof DOMException && caught.name === "AbortError");
+        const text = stopped
+          ? "已停止，回答可能不完整"
+          : caught instanceof Error
+            ? caught.message
+            : "对话请求失败";
+        updateAssistant({ error: text });
+      }
     } finally {
       if (streamController.current === controller) {
         streamController.current = null;
         setStreaming(false);
+        setStreamingMessageId(null);
       }
     }
   };
@@ -277,6 +301,7 @@ export default function ChatPage() {
                 }}
               />
               <Popconfirm
+                disabled={streaming && conversation.id === conversationId}
                 title="删除这个会话？"
                 description="此操作无法撤销。"
                 okText="删除"
@@ -287,6 +312,7 @@ export default function ChatPage() {
                   type="text"
                   size="small"
                   danger
+                  disabled={streaming && conversation.id === conversationId}
                   aria-label={`删除 ${conversation.title}`}
                   icon={<DeleteOutlined />}
                 />
@@ -297,7 +323,7 @@ export default function ChatPage() {
       </Sider>
       <Layout>
         <Header className="chat-header">
-          <Typography.Title level={3}>{activeTitle}</Typography.Title>
+          <Typography.Title level={3} className="chat-title">{activeTitle}</Typography.Title>
           <Space>
             <Link to="/documents"><FileTextOutlined /> <span className="header-label">文档管理</span></Link>
             <Button type="text" icon={<LogoutOutlined />} onClick={() => void logOut()}>
@@ -326,7 +352,7 @@ export default function ChatPage() {
                   {message.role === "assistant" && (
                     <div className="message-tools">
                       <CitationList citations={message.citations} />
-                      {!message.id.startsWith("temp-") && (
+                      {!message.id.startsWith("temp-") && message.id !== streamingMessageId && (
                         <FeedbackButtons messageId={message.id} csrfToken={csrfToken} />
                       )}
                     </div>
