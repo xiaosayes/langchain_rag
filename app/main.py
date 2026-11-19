@@ -6,7 +6,9 @@ from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from qdrant_client import QdrantClient
 
 from app.api.auth import auth_router
@@ -73,4 +75,23 @@ def create_app(
     app.include_router(documents_router)
     app.include_router(tasks_router)
     app.include_router(health_router)
+
+    frontend_dist = settings.web.frontend_dist
+    index_path = frontend_dist / "index.html"
+    assets_path = frontend_dist / "assets"
+    if assets_path.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+    if index_path.is_file():
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def serve_spa(path: str) -> FileResponse:
+            """Serve client routes without masking API, health, or asset 404s."""
+            reserved_prefixes = ("api", "health", "assets")
+            if any(
+                path == prefix or path.startswith(f"{prefix}/")
+                for prefix in reserved_prefixes
+            ):
+                raise HTTPException(status_code=404, detail="Not Found")
+            return FileResponse(index_path)
+
     return app

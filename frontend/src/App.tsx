@@ -1,8 +1,9 @@
-import { Button, Result, Spin } from "antd";
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Spin } from "antd";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import ChatPage from "./pages/ChatPage";
+import DocumentsPage from "./pages/DocumentsPage";
 import LoginPage from "./pages/LoginPage";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -21,17 +22,6 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return children;
 }
 
-function DocumentsPlaceholder() {
-  return (
-    <Result
-      status="info"
-      title="文档管理"
-      subTitle="文档管理页面将在下一阶段提供。"
-      extra={<Button type="primary"><Link to="/chat">返回对话</Link></Button>}
-    />
-  );
-}
-
 export default function App() {
   return (
     <AuthProvider>
@@ -41,7 +31,7 @@ export default function App() {
         <Route path="/chat/:id" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
         <Route
           path="/documents"
-          element={<ProtectedRoute><DocumentsPlaceholder /></ProtectedRoute>}
+          element={<ProtectedRoute><DocumentsPage /></ProtectedRoute>}
         />
         <Route path="*" element={<Navigate to="/chat" replace />} />
       </Routes>

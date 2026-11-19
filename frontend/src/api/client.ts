@@ -98,7 +98,9 @@ export async function apiFetch<T>(
   const method = (options.method ?? "GET").toUpperCase();
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
-  if (options.body !== undefined) headers.set("Content-Type", "application/json");
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   if (mutationMethods.has(method) && csrfToken) {
     headers.set("X-CSRF-Token", csrfToken);
   }
