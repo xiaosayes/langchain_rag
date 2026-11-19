@@ -14,6 +14,8 @@ from app.web.records import AuthSessionRecord
 
 def make_app(tmp_path: Path, monkeypatch, *, secure_cookie: bool = False):
     monkeypatch.setenv("RAG_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "correct-password")
     settings = AppSettings(
         app_env="test",
         model_provider="fake",
@@ -25,7 +27,6 @@ def make_app(tmp_path: Path, monkeypatch, *, secure_cookie: bool = False):
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch):
     app = make_app(tmp_path, monkeypatch)
-    app.state.auth_service.create_admin("admin", "correct-password")
     with TestClient(app) as test_client:
         yield test_client
 
@@ -44,7 +45,7 @@ def cookie_attributes(response) -> set[str]:
     }
 
 
-def test_login_cookie_flags_me_and_logout_revocation(client: TestClient):
+def test_login_cookie_flags_static_csrf_me_and_logout_revocation(client: TestClient):
     response = login(client)
 
     assert response.status_code == 200
@@ -57,19 +58,22 @@ def test_login_cookie_flags_me_and_logout_revocation(client: TestClient):
     assert "samesite=lax" in set_cookie
     assert "path=/" in set_cookie
     assert "max-age=43200" in set_cookie
-    assert response.json()["csrf_token"]
+    csrf = response.json()["csrf_token"]
+    assert csrf
     assert "session" not in response.json()
     assert raw_session not in response.text
     assert "correct-password" not in response.text
 
-    me = client.get("/api/auth/me")
-    assert me.status_code == 200
-    assert me.json()["csrf_token"]
-    assert me.json()["expires_at"]
-    assert "session" not in me.json()
-    assert raw_session not in me.text
+    first_me = client.get("/api/auth/me")
+    second_me = client.get("/api/auth/me")
+    assert first_me.status_code == 200
+    assert second_me.status_code == 200
+    assert first_me.json()["csrf_token"] == csrf
+    assert second_me.json()["csrf_token"] == csrf
+    assert first_me.json()["expires_at"] == second_me.json()["expires_at"]
+    assert "session" not in first_me.json()
+    assert raw_session not in first_me.text
 
-    csrf = me.json()["csrf_token"]
     logout = client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})
     assert logout.status_code == 204
     assert logout.content == b""
@@ -78,7 +82,6 @@ def test_login_cookie_flags_me_and_logout_revocation(client: TestClient):
 
 def test_secure_cookie_is_enabled_only_by_configuration(tmp_path: Path, monkeypatch):
     app = make_app(tmp_path / "secure", monkeypatch, secure_cookie=True)
-    app.state.auth_service.create_admin("admin", "correct-password")
     with TestClient(app) as secure_client:
         response = login(secure_client)
         assert response.status_code == 200
@@ -120,22 +123,29 @@ def test_logout_requires_a_valid_csrf_token(
     assert client.get("/api/auth/me").status_code == 200
 
 
-def test_me_rotates_csrf_and_old_token_cannot_authorize_mutation(client: TestClient):
-    original = login(client)
-    assert original.status_code == 200
-    original_csrf = original.json()["csrf_token"]
+def test_repeated_me_and_two_tabs_share_stable_csrf(tmp_path: Path, monkeypatch):
+    app = make_app(tmp_path, monkeypatch)
+    with TestClient(app) as first_tab, TestClient(app) as second_tab:
+        response = login(first_tab)
+        assert response.status_code == 200
+        csrf = response.json()["csrf_token"]
+        second_tab.cookies.set(
+            "rag_session", response.cookies["rag_session"], path="/"
+        )
 
-    me = client.get("/api/auth/me")
-    assert me.status_code == 200
-    assert me.json()["csrf_token"] != original_csrf
-    stale = client.post(
-        "/api/auth/logout", headers={"X-CSRF-Token": original_csrf}
-    )
-    assert stale.status_code == 403
-    fresh = client.post(
-        "/api/auth/logout", headers={"X-CSRF-Token": me.json()["csrf_token"]}
-    )
-    assert fresh.status_code == 204
+        first = first_tab.get("/api/auth/me")
+        repeated = first_tab.get("/api/auth/me")
+        second = second_tab.get("/api/auth/me")
+
+        assert first.status_code == repeated.status_code == second.status_code == 200
+        assert first.json()["csrf_token"] == csrf
+        assert repeated.json()["csrf_token"] == csrf
+        assert second.json()["csrf_token"] == csrf
+        logout = second_tab.post(
+            "/api/auth/logout", headers={"X-CSRF-Token": csrf}
+        )
+        assert logout.status_code == 204
+        assert first_tab.get("/api/auth/me").status_code == 401
 
 
 def test_expired_session_is_unauthenticated(client: TestClient, tmp_path: Path):
@@ -156,28 +166,3 @@ def test_logout_requires_authentication_before_csrf(client: TestClient):
         "/api/auth/logout", headers={"X-CSRF-Token": "anything"}
     )
     assert response.status_code == 401
-
-
-@pytest.mark.parametrize("username", ["admin", "unknown-user"])
-def test_five_failed_logins_are_rate_limited_without_account_oracle(
-    client: TestClient, username: str
-):
-    responses = [
-        client.post(
-            "/api/auth/login",
-            json={"username": username, "password": "wrong-password"},
-        )
-        for _ in range(5)
-    ]
-
-    assert [response.status_code for response in responses] == [401, 401, 401, 401, 429]
-    assert responses[0].json() == {"detail": "Invalid username or password"}
-    assert responses[-1].json() == {"detail": "Too many login attempts"}
-    for response in responses:
-        assert "wrong-password" not in response.text
-        assert username not in response.text
-
-    valid_but_limited = login(client)
-    assert valid_but_limited.status_code == 429
-    assert valid_but_limited.json() == responses[-1].json()
-    assert "correct-password" not in valid_but_limited.text

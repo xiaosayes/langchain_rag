@@ -32,10 +32,11 @@ def require_csrf(
     request: Request,
     session: Annotated[AuthSession, Depends(get_auth_session)],
 ) -> None:
-    """Require a header matching the session's hashed CSRF verifier."""
+    """Require a header matching the session's stable CSRF token."""
     supplied_token = request.headers.get("X-CSRF-Token", "")
     supplied_hash = hashlib.sha256(supplied_token.encode("utf-8")).hexdigest()
-    if not secrets.compare_digest(supplied_hash, session.csrf_token):
+    expected_hash = hashlib.sha256(session.csrf_token.encode("utf-8")).hexdigest()
+    if not secrets.compare_digest(supplied_hash, expected_hash):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid CSRF token",

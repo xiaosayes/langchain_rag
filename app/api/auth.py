@@ -7,13 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, SecretStr
 
 from app.api.deps import get_auth_session, require_csrf
-from app.web.auth import (
-    AuthService,
-    AuthSession,
-    InvalidCredentialsError,
-    InvalidSessionError,
-    LoginRateLimitError,
-)
+from app.web.auth import AuthService, AuthSession, InvalidCredentialsError
 
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -31,22 +25,15 @@ def _session_payload(csrf_token: str, expires_at: datetime) -> dict[str, str]:
 def login(credentials: LoginRequest, request: Request, response: Response):
     """Authenticate without revealing which credential failed."""
     service: AuthService = request.app.state.auth_service
-    ip_address = request.client.host if request.client is not None else "unknown"
     try:
         raw_session, csrf_token, expires_at = service.login(
             credentials.username,
             credentials.password.get_secret_value(),
-            ip_address,
         )
     except InvalidCredentialsError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
-        ) from error
-    except LoginRateLimitError as error:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many login attempts",
         ) from error
 
     settings = request.app.state.settings.web
@@ -63,20 +50,9 @@ def login(credentials: LoginRequest, request: Request, response: Response):
 
 
 @auth_router.get("/me")
-def me(
-    request: Request,
-    session: Annotated[AuthSession, Depends(get_auth_session)],
-):
-    """Return session expiry and a fresh raw CSRF token, never the session token."""
-    service: AuthService = request.app.state.auth_service
-    try:
-        rotated = service.rotate_csrf(session)
-    except InvalidSessionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        ) from error
-    return _session_payload(rotated.csrf_token, rotated.expires_at)
+def me(session: Annotated[AuthSession, Depends(get_auth_session)]):
+    """Return the stable CSRF token and expiry, never the session token."""
+    return _session_payload(session.csrf_token, session.expires_at)
 
 
 @auth_router.post(

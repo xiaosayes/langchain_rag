@@ -1,5 +1,6 @@
 """FastAPI application composition root."""
 
+import os
 from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any
@@ -42,6 +43,12 @@ def create_app(
             create_session_factory(root / "index.sqlite3"),
             session_ttl_hours=settings.web.session_ttl_hours,
         )
+    admin_username = os.environ.get("ADMIN_USERNAME")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
+    if (admin_username is None) != (admin_password is None):
+        raise ValueError("ADMIN_USERNAME and ADMIN_PASSWORD must be set together")
+    if admin_username is not None and admin_password is not None:
+        auth_service.ensure_admin(admin_username, admin_password)
     app.state.auth_service = auth_service
     app.include_router(auth_router)
     app.include_router(health_router)
