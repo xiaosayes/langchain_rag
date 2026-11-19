@@ -12,6 +12,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import func, select
 
+from app.api.chat import _encode_stream
 from app.config import AppSettings
 from app.db.models import IndexGenerationRecord
 from app.main import create_app
@@ -24,6 +25,7 @@ class FakeRAGService:
         self.chunks = ["grounded ", "answer[S1]"]
         self.prepare_error: Exception | None = None
         self.stream_error: Exception | None = None
+        self.cleanup_error: Exception | None = None
         self.histories = []
         self.generation_ids = []
         self.prepare_calls = 0
@@ -83,6 +85,8 @@ class FakeRAGService:
                 await asyncio.Event().wait()
         finally:
             self.stream_closed.set()
+            if self.cleanup_error is not None:
+                raise self.cleanup_error
 
 
 def make_app(tmp_path: Path, monkeypatch):
@@ -297,6 +301,133 @@ def test_cancellation_closes_upstream_and_persists_partial_cancelled(
             assert assistant.error is None
 
     asyncio.run(exercise())
+
+
+@pytest.mark.asyncio
+async def test_generator_cleanup_failure_releases_slot_for_next_request(
+    tmp_path, monkeypatch
+):
+    app, fake = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    app.state.chat_semaphore = asyncio.Semaphore(1)
+    fake.chunks = ["partial"]
+    fake.cleanup_error = RuntimeError("upstream cleanup interrupted")
+    semaphore = app.state.chat_semaphore
+    await semaphore.acquire()
+    service = app.state.chat_service
+    prepared = await service.prepare("first", None)
+    conversation_id = app.state.conversation_service.list()[0].id
+    encoded = _encode_stream(
+        service.stream(conversation_id, prepared), semaphore.release
+    )
+    assert (await anext(encoded)).startswith(b"event: start")
+    assert (await anext(encoded)).startswith(b"event: token")
+
+    with pytest.raises(RuntimeError, match="upstream cleanup interrupted"):
+        await encoded.aclose()
+
+    assert not semaphore.locked()
+    fake.cleanup_error = None
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login_response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "correct-password"},
+        )
+        csrf = login_response.json()["csrf_token"]
+        response = await client.post(
+            "/api/chat/stream",
+            json={"question": "after cleanup"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 200
+        assert sse_events(response)[-1][0] == "done"
+
+
+@pytest.mark.asyncio
+async def test_asgi_disconnect_persists_partial_and_releases_route_slot(
+    tmp_path, monkeypatch
+):
+    app, fake = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    app.state.chat_semaphore = asyncio.Semaphore(1)
+    fake.chunks = ["partial"]
+    fake.block_stream = True
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        login_response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "correct-password"},
+        )
+        csrf = login_response.json()["csrf_token"]
+        cookie = "; ".join(f"{name}={value}" for name, value in client.cookies.items())
+        body = json.dumps({"question": "disconnect"}).encode()
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/chat/stream",
+            "raw_path": b"/api/chat/stream",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"host", b"testserver"),
+                (b"cookie", cookie.encode()),
+                (b"x-csrf-token", csrf.encode()),
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            "client": ("testclient", 123),
+            "server": ("testserver", 80),
+        }
+        token_sent = asyncio.Event()
+        request_sent = False
+        sent_messages = []
+
+        async def receive():
+            nonlocal request_sent
+            if not request_sent:
+                request_sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await asyncio.wait_for(token_sent.wait(), timeout=1)
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent_messages.append(message)
+            if message["type"] == "http.response.body" and b"event: token" in message.get(
+                "body", b""
+            ):
+                token_sent.set()
+
+        await asyncio.wait_for(app(scope, receive, send), timeout=2)
+        await asyncio.wait_for(fake.stream_closed.wait(), timeout=1)
+
+        factory = app.state.conversation_service.session_factory
+        with factory() as session:
+            assistant = session.scalar(
+                select(MessageRecord).where(MessageRecord.role == "assistant")
+            )
+            assert assistant is not None
+            assert assistant.content == "partial"
+            assert assistant.cancelled is True
+            assert assistant.error is None
+        assert not app.state.chat_semaphore.locked()
+        assert any(
+            message["type"] == "http.response.body"
+            and b"event: token" in message.get("body", b"")
+            for message in sent_messages
+        )
+
+        fake.block_stream = False
+        response = await client.post(
+            "/api/chat/stream",
+            json={"question": "after disconnect"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 200
+        assert sse_events(response)[-1][0] == "done"
 
 
 @pytest.mark.asyncio

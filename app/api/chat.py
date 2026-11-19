@@ -38,8 +38,10 @@ async def _encode_stream(
         async for event in events:
             yield _encode_event(event)
     finally:
-        await events.aclose()
-        release()
+        try:
+            await events.aclose()
+        finally:
+            release()
 
 
 async def _preparation_error(
