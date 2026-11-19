@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.bootstrap import _qdrant, _repository
 from app.config import AppSettings
 from app.db.models import ChildChunkRecord, ParentChunkRecord
+from app.error_sanitization import sanitized_error_message
 from app.indexing.repository import IndexRepository
 from app.indexing.vector_space import VectorSpace
 from app.ingestion.pdf import has_usable_text_layer
@@ -70,7 +71,7 @@ def _error_check(
         ok=False,
         expected=expected,
         actual=actual,
-        message=f"{type(error).__name__}: {error}",
+        message=sanitized_error_message(error),
     )
 
 

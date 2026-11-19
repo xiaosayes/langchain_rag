@@ -4,13 +4,16 @@ import asyncio
 from pathlib import Path
 from typing import Annotated, NoReturn
 
+import httpx
 import typer
+from openai import OpenAIError
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.bootstrap import build_index_builder, build_rag_service
 from app.config import load_settings
 from app.domain.models import ParsedBlock
+from app.error_sanitization import sanitized_error_message
 from app.ingestion.registry import ParserRegistry
 from app.ingestion.text_office import QAParser
 from app.rag.service import RAGService
@@ -33,7 +36,8 @@ QAOption = Annotated[Path, typer.Option("--qa", help="Knowledge Q&A workbook")]
 
 
 def _fail(error: Exception) -> NoReturn:
-    typer.echo(f"Error: {error}", err=True)
+    message = sanitized_error_message(error, preserve_application_message=True)
+    typer.echo(f"Error: {message}", err=True)
     raise typer.Exit(code=1) from error
 
 
@@ -76,6 +80,7 @@ def _build_command(corpus: Path, qa: Path, verb: str) -> None:
         SQLAlchemyError,
         ResponseHandlingException,
         UnexpectedResponse,
+        httpx.HTTPError,
     ) as error:
         _fail(error)
     typer.echo(f"{verb} generation: {generation_id}")
@@ -132,6 +137,8 @@ def ask(
         SQLAlchemyError,
         ResponseHandlingException,
         UnexpectedResponse,
+        httpx.HTTPError,
+        OpenAIError,
     ) as error:
         _fail(error)
     finally:
@@ -152,7 +159,7 @@ def verify(corpus: CorpusOption, qa: QAOption) -> None:
                     ok=False,
                     expected="valid application configuration",
                     actual=None,
-                    message=f"{type(error).__name__}: {error}",
+                    message=sanitized_error_message(error),
                 )
             ]
         )
