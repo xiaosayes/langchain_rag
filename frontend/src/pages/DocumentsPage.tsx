@@ -272,7 +272,7 @@ export default function DocumentsPage() {
         const deleteMutation = mutation === `${document.id}:delete`;
         return (
           <Space wrap>
-            {document.status === "ready" && document.current_version_id && (
+            {document.current_version_id && (
               <Button
                 type="link"
                 href={`/api/documents/${encodeURIComponent(document.id)}/content`}

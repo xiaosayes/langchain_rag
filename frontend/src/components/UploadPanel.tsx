@@ -52,6 +52,10 @@ export default function UploadPanel({ csrfToken, onAccepted }: UploadPanelProps)
 
   const upload = async () => {
     if (!selectedFile || uploading) return;
+    if (kind === "qa" && !selectedFile.name.toLowerCase().endsWith(".xlsx")) {
+      setError("问答对（QA）需上传 XLSX 文件");
+      return;
+    }
     setUploading(true);
     setError(null);
     const body = new FormData();

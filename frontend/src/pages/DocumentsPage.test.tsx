@@ -139,6 +139,30 @@ describe("document management", () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/documents/upload")).toHaveLength(1);
   });
 
+  it("blocks a non-XLSX file selected in document mode after switching to QA", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/auth/me") {
+        return Promise.resolve(jsonResponse({ csrf_token: "csrf", expires_at: "tomorrow" }));
+      }
+      if (url === "/api/documents") return Promise.resolve(jsonResponse([]));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = renderPage();
+    expect(await screen.findByRole("heading", { name: "文档管理" })).toBeInTheDocument();
+
+    fireEvent.change(fileInput(container), {
+      target: { files: [new File(["plain text"], "notes.txt", { type: "text/plain" })] },
+    });
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "问答对（QA）" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传文档" }));
+
+    expect(await screen.findByText("问答对（QA）需上传 XLSX 文件")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/documents/upload")).toHaveLength(0);
+  });
+
   it("shows ready and sanitized failed states without exposing metadata paths and provides the download URL", async () => {
     const documents = [
       documentFixture(),
@@ -147,7 +171,7 @@ describe("document management", () => {
         filename: "broken.pdf",
         media_type: "application/pdf",
         status: "failed",
-        current_version_id: null,
+        current_version_id: "version-accepted",
         latest_version_id: "version-failed",
         parent_count: 0,
         child_count: 0,
@@ -171,6 +195,10 @@ describe("document management", () => {
     expect(screen.getByRole("link", { name: "下载 handbook.txt" })).toHaveAttribute(
       "href",
       "/api/documents/doc-1/content",
+    );
+    expect(screen.getByRole("link", { name: "下载 broken.pdf" })).toHaveAttribute(
+      "href",
+      "/api/documents/doc-failed/content",
     );
     expect(container).not.toHaveTextContent("/private/SECRET_PATH");
     expect(container).not.toHaveTextContent("SECRET_TOKEN");
