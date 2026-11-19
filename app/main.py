@@ -9,10 +9,12 @@ from fastapi import FastAPI
 from qdrant_client import QdrantClient
 
 from app.api.auth import auth_router
+from app.api.conversations import conversations_router
 from app.api.documents import documents_router
 from app.api.tasks import tasks_router
 from app.bootstrap import state_directory
 from app.config import AppSettings, load_settings
+from app.conversations.service import ConversationService
 from app.db.session import create_session_factory
 from app.documents.service import DocumentService
 from app.web.auth import AuthService
@@ -54,7 +56,9 @@ def create_app(
         auth_service.ensure_admin(admin_username, admin_password)
     app.state.auth_service = auth_service
     app.state.document_service = DocumentService(auth_service.session_factory, settings)
+    app.state.conversation_service = ConversationService(auth_service.session_factory)
     app.include_router(auth_router)
+    app.include_router(conversations_router)
     app.include_router(documents_router)
     app.include_router(tasks_router)
     app.include_router(health_router)
