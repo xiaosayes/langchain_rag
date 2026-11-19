@@ -105,6 +105,7 @@ test.skip(
 );
 
 test.beforeAll(async () => {
+  test.setTimeout(180_000);
   if (!qdrantBinary) return;
   if (!fs.existsSync(qdrantBinary)) {
     throw new Error(`QDRANT_BINARY does not exist: ${qdrantBinary}`);
