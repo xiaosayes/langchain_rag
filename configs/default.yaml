@@ -34,3 +34,14 @@ retrieval:
   final_parent_count: 6
   max_parents_per_document: 2
   max_context_characters: 12000
+web:
+  host: 127.0.0.1
+  port: 18000
+  session_cookie_name: rag_session
+  session_ttl_hours: 12
+  secure_cookie: false
+  max_upload_mb: 50
+  max_chat_concurrency: 5
+  task_lease_seconds: 300
+  raw_file_dir: var/core/raw_files
+  frontend_dist: frontend/dist
