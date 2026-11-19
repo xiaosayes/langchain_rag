@@ -123,6 +123,8 @@ class IngestionWorker:
             )
             for document in documents:
                 task = selected.get(document.id)
+                if task is not None and task.kind == "delete":
+                    continue
                 version_id = (
                     task.version_id if task is not None else document.current_version_id
                 )

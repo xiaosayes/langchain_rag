@@ -29,7 +29,7 @@ class IndexProgress:
                 task = _require_task(session, task_id)
                 task.payload_json = {**task.payload_json, "progress": stage}
                 version = _version(session, task)
-                if version is not None:
+                if version is not None and task.kind != "delete":
                     version.status = stage
                     version.error = None
                 document = session.get(DocumentRecord, task.document_id)
@@ -55,8 +55,12 @@ def mark_ready(
             version.error = None
         document = session.get(DocumentRecord, task.document_id)
         if document is not None:
-            document.status = "ready"
-            document.current_version_id = task.version_id
+            if task.kind == "delete":
+                document.deleted = True
+                document.status = "deleted"
+            else:
+                document.status = "ready"
+                document.current_version_id = task.version_id
             document.error = None
 
 
@@ -68,10 +72,19 @@ def mark_failed(
         task = _require_task(session, task_id)
         task.payload_json = {**task.payload_json, "progress": "failed"}
         version = _version(session, task)
+        document = session.get(DocumentRecord, task.document_id)
+        if task.kind == "delete":
+            # A failed delete leaves the accepted version ready and downloadable.
+            if version is not None:
+                version.status = "ready"
+                version.error = None
+            if document is not None:
+                document.status = "ready"
+                document.error = None
+            return
         if version is not None:
             version.status = "failed"
             version.error = error
-        document = session.get(DocumentRecord, task.document_id)
         if document is not None:
             document.status = "failed"
             document.error = error
