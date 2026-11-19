@@ -29,7 +29,6 @@
 app/
 ├── main.py                       # FastAPI composition root
 ├── worker.py                     # Single ingestion worker entry point
-├── web_admin.py                  # Interactive one-admin bootstrap
 ├── config.py                     # Add WebSettings only
 ├── db/
 │   ├── models.py                 # Add web records, preserve core records
@@ -196,27 +195,29 @@ Authentication, conversation, message, and feedback tables use the exact fields 
 Run `uv run pytest tests/unit/test_web_db.py tests/unit/test_db.py -v` and `uv run ruff check app/db app/web/records.py`.
 Expected: new and old records pass. Commit with message `feat: add web persistence and additive migrations`.
 
-### Task 3: Implement Single-Admin Authentication and CSRF Protection
+### Task 3: Implement Minimal Single-Account Login
 
 **Files:**
-- Create: `app/web/auth.py`, `app/api/deps.py`, `app/api/auth.py`, `app/web_admin.py`, `tests/unit/test_auth.py`, `tests/integration/test_auth_api.py`
+- Create: `app/web/auth.py`, `app/api/deps.py`, `app/api/auth.py`, `tests/unit/test_auth.py`, `tests/integration/test_auth_api.py`
 
 **Interfaces:**
-- Produces: `AuthService.create_admin(username, password)`, `login(username, password, ip_address) -> tuple[raw_session_token, csrf_token, expires_at]`, `logout(raw_token)`, and `AuthSession(csrf_token, expires_at)`.
+- Produces: `AuthService.ensure_admin(username, password)`, `login(username, password) -> tuple[raw_session_token, csrf_token, expires_at]`, `logout(raw_token)`, and `AuthSession(csrf_token, expires_at)`.
 - Produces: `get_auth_session(request) -> AuthSession` and `require_csrf(request, session) -> None`.
+- Explicitly excludes: login rate limiting, CSRF rotation, interactive admin tools, registration, password reset, user management, roles, and permissions.
 
-- [ ] **Step 1: Write failing authentication and cookie/CSRF tests**
+- [ ] **Step 1: Write failing minimal-login tests**
 
-Cover Argon2id hash verification, duplicate-admin rejection, opaque token storage as SHA-256 rather than raw token, login cookie flags, `/api/auth/me`, logout revocation, expiration, and wrong/missing CSRF on a mutation. Include five failed logins causing HTTP 429 without revealing whether username or password failed.
+Cover one environment-configured account, Argon2id verification, opaque token hashes, login cookie flags, `/me`, logout, expiration, wrong/missing CSRF, and stable CSRF across repeated `/me` calls and two tabs. Assert there is no rate limiter and no interactive account command.
 
 ```python
-def test_login_cookie_and_csrf(client, admin):
+def test_login_and_static_csrf(client, admin):
     response = client.post("/api/auth/login", json={"username": "admin", "password": "correct-password"})
     assert response.status_code == 200
-    cookie = response.cookies["rag_session"]
     assert "HttpOnly" in response.headers["set-cookie"]
-    csrf = response.json()["csrf_token"]
-    assert client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 204
+    first = client.get("/api/auth/me").json()["csrf_token"]
+    second = client.get("/api/auth/me").json()["csrf_token"]
+    assert first == second
+    assert client.post("/api/auth/logout", headers={"X-CSRF-Token": first}).status_code == 204
 ```
 
 - [ ] **Step 2: Run auth tests and verify RED**
@@ -224,18 +225,18 @@ def test_login_cookie_and_csrf(client, admin):
 Run `uv run pytest tests/unit/test_auth.py tests/integration/test_auth_api.py -v`.
 Expected: missing auth service/routes.
 
-- [ ] **Step 3: Implement password and session services**
+- [ ] **Step 3: Implement minimal password and session services**
 
-Use `argon2.PasswordHasher` with its Argon2id default, `secrets.token_urlsafe(32)` for session and CSRF tokens, and SHA-256 token hashes in `AuthSessionRecord`. Only the cookie carries the raw session token. `create_admin` rejects a second account. `web_admin.py` prompts with `getpass` and never accepts a password command argument.
+Use only `ADMIN_USERNAME` and `ADMIN_PASSWORD` to provision the sole account through `ensure_admin`; store Argon2id hashes, reject any second account, and never log or return the password. Use `secrets.token_urlsafe(32)` for session and CSRF tokens and SHA-256 token hashes in `AuthSessionRecord`. Only the cookie carries the raw session token. Do not create `web_admin.py` or any account-management command.
 
 - [ ] **Step 4: Implement login/logout/me and dependencies**
 
-Login sets `HttpOnly`, `SameSite=lax`, `Path=/`, `Max-Age`, and `Secure` only when `web.secure_cookie=True`. Return the CSRF token once at login and on `/me`; never return the session token in JSON. Authenticated mutating routes require `X-CSRF-Token` compared with `secrets.compare_digest`. Add a small in-memory per-IP five-failures/five-minutes limiter suitable for the single API process.
+Login sets `HttpOnly`, `SameSite=lax`, `Path=/`, `Max-Age`, and `Secure` only when `web.secure_cookie=True`. Return the same CSRF token at login and every `/me` call without rotation. Authenticated mutating routes require `X-CSRF-Token` compared with `secrets.compare_digest`. Do not add a rate limiter, password reset, registration, role checks, or permission middleware.
 
-- [ ] **Step 5: Verify all auth behavior and commit**
+- [ ] **Step 5: Verify minimal login and commit**
 
-Run `uv run pytest tests/unit/test_auth.py tests/integration/test_auth_api.py -v` and `uv run ruff check app/web app/api app/web_admin.py`.
-Expected: all pass with no warning or secret in responses. Commit with message `feat: add single admin authentication and CSRF protection`.
+Run `uv run pytest tests/unit/test_auth.py tests/integration/test_auth_api.py -v` and `uv run ruff check app/web app/api`.
+Expected: all pass with no secret in responses, no rate-limiter code, and no account command. Commit with message `feat: add minimal single-account login`.
 
 ### Task 4: Add Persistent Task Leases, Worker Recovery, and Index Progress
 
@@ -502,7 +503,7 @@ Expected: all relevant tests pass; live Bailian remains NOT RUN. Commit with mes
 
 Record actual outputs for:
 
-- One-admin login, cookie, CSRF, expiration, and rate-limit tests.
+- Single-account login, cookie, stable CSRF, expiration, and no-login-limiter checks.
 - Document version replacement/failure safety and worker lease recovery.
 - SSE event order, persisted citations, cancellation, and local feedback.
 - React unit/build checks and API/browser critical flows.
