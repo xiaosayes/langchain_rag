@@ -139,6 +139,79 @@ def test_complete_requires_owner_and_supersedes_only_older_work(factory):
     assert newest_record.status == "queued"
 
 
+@pytest.mark.parametrize("action", ["complete", "fail"])
+def test_terminal_transition_rejects_omitted_owner_without_supersession(
+    factory, action
+):
+    old_version = add_version(factory, version=1)
+    new_version = add_version(factory, version=2)
+    queue = TaskQueue(factory)
+    old = queue.enqueue("doc-1", old_version, "ingest")
+    new = queue.enqueue("doc-1", new_version, "ingest")
+    queue.claim_batch("worker-a", 30)
+
+    with pytest.raises(TypeError):
+        if action == "complete":
+            queue.complete(new.id)
+        else:
+            queue.fail(new.id, "must not be persisted")
+
+    old_record = task_by_id(factory, old.id)
+    new_record = task_by_id(factory, new.id)
+    assert old_record.status == "running"
+    assert old_record.payload_json == {}
+    assert new_record.status == "running"
+    assert new_record.lease_owner == "worker-a"
+    assert new_record.lease_expires_at > datetime.now(UTC)
+    assert new_record.attempts == 1
+    assert new_record.error is None
+
+
+@pytest.mark.parametrize("action", ["complete", "fail"])
+@pytest.mark.parametrize(
+    "condition", ["wrong-owner", "expired-lease", "missing-lease", "non-running"]
+)
+def test_terminal_transition_rejects_invalid_lease_without_supersession(
+    factory, action, condition
+):
+    old_version = add_version(factory, version=1)
+    new_version = add_version(factory, version=2)
+    queue = TaskQueue(factory)
+    old = queue.enqueue("doc-1", old_version, "ingest")
+    new = queue.enqueue("doc-1", new_version, "ingest")
+    queue.claim_batch("worker-a", 30)
+    with factory.begin() as session:
+        task = session.get(TaskRecord, new.id)
+        if condition == "expired-lease":
+            task.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        elif condition == "missing-lease":
+            task.lease_expires_at = None
+        elif condition == "non-running":
+            task.status = "queued"
+
+    owner = "worker-b" if condition == "wrong-owner" else "worker-a"
+    with pytest.raises(TaskLeaseError):
+        if action == "complete":
+            queue.complete(new.id, owner=owner)
+        else:
+            queue.fail(new.id, "must not be persisted", owner=owner)
+
+    old_record = task_by_id(factory, old.id)
+    new_record = task_by_id(factory, new.id)
+    assert old_record.status == "running"
+    assert old_record.payload_json == {}
+    assert new_record.status == ("queued" if condition == "non-running" else "running")
+    assert new_record.lease_owner == "worker-a"
+    if condition == "expired-lease":
+        assert new_record.lease_expires_at <= datetime.now(UTC)
+    elif condition == "missing-lease":
+        assert new_record.lease_expires_at is None
+    else:
+        assert new_record.lease_expires_at > datetime.now(UTC)
+    assert new_record.attempts == 1
+    assert new_record.error is None
+
+
 def test_failed_newest_task_does_not_supersede_older_work(factory):
     old_version = add_version(factory, version=1)
     new_version = add_version(factory, version=2)

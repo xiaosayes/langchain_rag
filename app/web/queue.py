@@ -93,7 +93,7 @@ class TaskQueue:
             session.commit()
         return claimed
 
-    def complete(self, task_id: str, owner: str | None = None) -> TaskRecord:
+    def complete(self, task_id: str, owner: str) -> TaskRecord:
         """Finish a leased task and supersede only its older pending versions."""
         with self.session_factory() as session:
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -127,7 +127,7 @@ class TaskQueue:
             session.commit()
             return task
 
-    def fail(self, task_id: str, error: str, owner: str | None = None) -> TaskRecord:
+    def fail(self, task_id: str, error: str, owner: str) -> TaskRecord:
         """Fail only the currently leased task; never supersede other versions."""
         with self.session_factory() as session:
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -159,16 +159,18 @@ class TaskQueue:
             return result.rowcount or 0
 
     @staticmethod
-    def _require_lease(
-        task: TaskRecord | None, owner: str | None, task_id: str
-    ) -> None:
+    def _require_lease(task: TaskRecord | None, owner: str, task_id: str) -> None:
         if (
             task is None
             or task.status != "running"
             or task.lease_owner is None
-            or (owner is not None and task.lease_owner != owner)
+            or task.lease_owner != owner
+            or task.lease_expires_at is None
+            or task.lease_expires_at <= datetime.now(UTC)
         ):
-            raise TaskLeaseError(f"Task {task_id} is not held by the current owner")
+            raise TaskLeaseError(
+                f"Task {task_id} does not have an unexpired lease for this owner"
+            )
 
     @staticmethod
     def _version_numbers(session: Session, tasks: list[TaskRecord]) -> dict[str, int]:
