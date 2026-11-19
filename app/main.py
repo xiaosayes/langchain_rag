@@ -9,9 +9,12 @@ from fastapi import FastAPI
 from qdrant_client import QdrantClient
 
 from app.api.auth import auth_router
+from app.api.documents import documents_router
+from app.api.tasks import tasks_router
 from app.bootstrap import state_directory
 from app.config import AppSettings, load_settings
 from app.db.session import create_session_factory
+from app.documents.service import DocumentService
 from app.web.auth import AuthService
 from app.web.health import health_router
 
@@ -50,6 +53,9 @@ def create_app(
     if admin_username is not None and admin_password is not None:
         auth_service.ensure_admin(admin_username, admin_password)
     app.state.auth_service = auth_service
+    app.state.document_service = DocumentService(auth_service.session_factory, settings)
     app.include_router(auth_router)
+    app.include_router(documents_router)
+    app.include_router(tasks_router)
     app.include_router(health_router)
     return app
