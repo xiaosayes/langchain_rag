@@ -9,6 +9,33 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import models as _models  # noqa: F401
 from app.db.base import Base
 
+_DOCUMENT_COLUMNS = (
+    ("filename", "VARCHAR NOT NULL DEFAULT ''"),
+    ("media_type", "VARCHAR NOT NULL DEFAULT ''"),
+    ("status", "VARCHAR(16) NOT NULL DEFAULT 'ready'"),
+    ("current_version_id", "VARCHAR DEFAULT NULL"),
+    ("error", "TEXT DEFAULT NULL"),
+    ("created_at", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+    ("updated_at", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+    ("deleted", "BOOLEAN NOT NULL DEFAULT 0"),
+)
+
+
+def ensure_web_schema(session_factory: sessionmaker[Session]) -> None:
+    """Create web tables and add missing document columns without rebuilding data."""
+    from app.web import records as _records  # noqa: F401
+
+    engine = session_factory.kw["bind"]
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        rows = connection.exec_driver_sql("PRAGMA table_info(documents)").all()
+        existing_columns = {row[1] for row in rows}
+        for name, definition in _DOCUMENT_COLUMNS:
+            if name not in existing_columns:
+                connection.execute(
+                    text(f"ALTER TABLE documents ADD COLUMN {name} {definition}")
+                )
+
 
 def create_session_factory(path: Path) -> sessionmaker[Session]:
     """Create a session factory with SQLite integrity and WAL enabled."""
@@ -35,4 +62,6 @@ def create_session_factory(path: Path) -> sessionmaker[Session]:
                     "ADD COLUMN vector_space_fingerprint VARCHAR(64)"
                 )
             )
-    return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+    session_factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+    ensure_web_schema(session_factory)
+    return session_factory

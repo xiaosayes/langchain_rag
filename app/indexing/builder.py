@@ -1,7 +1,7 @@
 """Staged index builds with vector reuse and atomic generation activation."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
@@ -38,11 +38,19 @@ class IndexBuilder:
         self.chunk_settings = chunk_settings
         self.vector_space = vector_space
 
-    def build(self, documents: dict[str, list[ParsedBlock]]) -> str:
+    def build(
+        self,
+        documents: dict[str, list[ParsedBlock]],
+        progress: Callable[[str], None] | None = None,
+    ) -> str:
         generation_id = str(uuid4())
         self.repository.prepare_generation(generation_id, self.vector_space)
         try:
+            if progress is not None:
+                progress("chunking")
             parents, children = self._chunk_all(documents)
+            if progress is not None:
+                progress("embedding")
             reusable = self.repository.reusable_vectors(children, self.vector_space)
             previous_generation = self.repository.active_generation()
             vectors = (
@@ -53,6 +61,8 @@ class IndexBuilder:
             missing = [child for child in children if child.id not in vectors]
             vectors.update(self.embed_new(missing))
 
+            if progress is not None:
+                progress("indexing")
             self.qdrant.create(generation_id, self.embeddings.dimension)
             self.qdrant.upsert(
                 generation_id,

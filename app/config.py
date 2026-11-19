@@ -79,6 +79,19 @@ class QdrantSettings(BaseModel):
     distance: Literal["cosine", "euclid", "dot"] = "cosine"
 
 
+class WebSettings(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = Field(default=18000, gt=0)
+    session_cookie_name: str = "rag_session"
+    session_ttl_hours: int = Field(default=12, gt=0)
+    secure_cookie: bool = False
+    max_upload_mb: int = Field(default=50, gt=0)
+    max_chat_concurrency: int = 5
+    task_lease_seconds: int = Field(default=300, gt=0)
+    raw_file_dir: Path = Path("var/core/raw_files")
+    frontend_dist: Path = Path("frontend/dist")
+
+
 class AppSettings(BaseModel):
     app_env: Literal["production", "test"] = "production"
     model_provider: Literal["bailian", "fake"] = "bailian"
@@ -88,6 +101,7 @@ class AppSettings(BaseModel):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     chunk: ChunkSettings = Field(default_factory=ChunkSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    web: WebSettings = Field(default_factory=WebSettings)
     dashscope_api_key: SecretStr | None = None
 
 
