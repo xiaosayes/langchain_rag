@@ -7,16 +7,18 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from sqlalchemy import func, select
 
-from app.api.chat import _encode_stream
+from app.api.chat import _encode_stream, stream_chat
+from app.chat.schemas import ChatRequest
 from app.config import AppSettings
 from app.db.models import IndexGenerationRecord
 from app.main import create_app
-from app.rag.service import Citation, RAGPreparation
+from app.rag.service import Citation, RAGPreparation, RAGService
 from app.web.records import FeedbackRecord, MessageRecord
 
 
@@ -335,6 +337,113 @@ def test_cancellation_closes_upstream_and_persists_partial_cancelled(
         assert detail["error"] is None
 
     asyncio.run(exercise())
+
+
+@pytest.mark.asyncio
+async def test_close_after_token_finalizes_real_rag_before_terminal_snapshot(
+    tmp_path, monkeypatch
+):
+    app, _ = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+
+    class ChatModel:
+        async def astream(self, messages):
+            yield AIMessageChunk(content="partial ")
+            yield AIMessageChunk(content="unconsumed")
+
+    monitoring = app.state.monitoring_service
+    rag = RAGService(
+        ChatModel(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        monitoring_service=monitoring,
+    )
+    service = app.state.chat_service
+    service.rag_service = rag
+    conversation_id = app.state.conversation_service.create().id
+    run_id = monitoring.start_run("question", conversation_id)
+    document = Document(
+        page_content="source",
+        metadata={"document_id": "doc-1", "parent_id": "parent-1"},
+    )
+    prepared = RAGPreparation(
+        original_question="question",
+        retrieval_query="question",
+        documents=[document],
+        citations=[
+            Citation(
+                label="S1",
+                document_id="doc-1",
+                parent_id="parent-1",
+                text="source",
+                metadata=dict(document.metadata),
+            )
+        ],
+        degraded=False,
+        generation_id="gen-active",
+        insufficient_context=False,
+    )
+    events = service.stream(conversation_id, prepared, run_id=run_id)
+    assert (await anext(events)).event == "start"
+    assert (await anext(events)).data == {"content": "partial "}
+
+    await events.aclose()
+
+    detail = assert_one_terminal_run(app, "cancelled", "partial ")
+    snapshot = json.loads(
+        monitoring.trace_path.read_text(encoding="utf-8").splitlines()[0]
+    )
+    for traced in (detail, snapshot):
+        chat_events = [event for event in traced["events"] if event["stage"] == "chat"]
+        assert len(chat_events) == 1
+        assert chat_events[0]["status"] == "cancelled"
+    factory = app.state.conversation_service.session_factory
+    with factory() as session:
+        assistants = session.scalars(
+            select(MessageRecord).where(MessageRecord.role == "assistant")
+        ).all()
+        assert len(assistants) == 1
+        assert assistants[0].content == "partial "
+        assert assistants[0].cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_api_stream_close_before_first_advance_finishes_cancelled_run(
+    tmp_path, monkeypatch
+):
+    app, _ = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    request = Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/chat/stream",
+            "raw_path": b"/api/chat/stream",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [],
+            "client": ("testclient", 123),
+            "server": ("testserver", 80),
+            "app": app,
+        }
+    )
+    response = await stream_chat(ChatRequest(question="early close"), request)
+
+    await response.body_iterator.aclose()
+
+    detail = assert_one_terminal_run(app, "cancelled", "")
+    assert detail["message_id"] is None
+    assert not app.state.chat_semaphore.locked()
+    factory = app.state.conversation_service.session_factory
+    with factory() as session:
+        assert (
+            session.scalars(
+                select(MessageRecord).where(MessageRecord.role == "assistant")
+            ).all()
+            == []
+        )
 
 
 @pytest.mark.asyncio

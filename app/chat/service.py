@@ -174,6 +174,7 @@ class ChatService:
         else:
             upstream = self.rag_service.stream_answer(prepared, run_id=run_id)
         terminal = False
+        upstream_closed = False
         try:
             yield ChatEvent(
                 "start",
@@ -207,7 +208,11 @@ class ChatService:
                     answer,
                     cancelled=True,
                 )
-                self._finish_run(run_id, "cancelled", answer)
+                upstream_closed = True
+                try:
+                    await upstream.aclose()
+                finally:
+                    self._finish_run(run_id, "cancelled", answer)
             raise
         except Exception as error:  # noqa: BLE001 - sanitize every provider failure
             message = sanitized_error_message(error)
@@ -225,7 +230,8 @@ class ChatService:
                 "error", {"message_id": message_id, "message": message}
             )
         finally:
-            await upstream.aclose()
+            if not upstream_closed:
+                await upstream.aclose()
 
     def upsert_feedback(
         self, message_id: str, score: int, comment: str | None

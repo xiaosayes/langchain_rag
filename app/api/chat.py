@@ -1,5 +1,7 @@
 """Authenticated, concurrency-limited server-sent event chat."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
@@ -55,17 +57,58 @@ def _finish_run(
         pass
 
 
-async def _encode_stream(
-    events: AsyncIterator[ChatEvent], release: Callable[[], None]
-) -> AsyncIterator[bytes]:
-    try:
-        async for event in events:
-            yield _encode_event(event)
-    finally:
+class _EncodedStream:
+    """Encode events and finalize even when closed before first advancement."""
+
+    def __init__(
+        self,
+        events: AsyncIterator[ChatEvent],
+        release: Callable[[], None],
+        on_early_close: Callable[[], None] | None = None,
+    ) -> None:
+        self._events = events
+        self._release = release
+        self._on_early_close = on_early_close
+        self._started = False
+        self._closed = False
+
+    def __aiter__(self) -> _EncodedStream:
+        return self
+
+    async def __anext__(self) -> bytes:
+        if self._closed:
+            raise StopAsyncIteration
+        self._started = True
         try:
-            await events.aclose()
+            event = await self._events.__anext__()
+        except StopAsyncIteration:
+            await self.aclose()
+            raise
+        except BaseException:
+            await self.aclose()
+            raise
+        return _encode_event(event)
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self._events.aclose()
         finally:
-            release()
+            try:
+                if not self._started and self._on_early_close is not None:
+                    self._on_early_close()
+            finally:
+                self._release()
+
+
+def _encode_stream(
+    events: AsyncIterator[ChatEvent],
+    release: Callable[[], None],
+    on_early_close: Callable[[], None] | None = None,
+) -> _EncodedStream:
+    return _EncodedStream(events, release, on_early_close)
 
 
 async def _preparation_error(
@@ -128,4 +171,10 @@ async def stream_chat(payload: ChatRequest, request: Request) -> StreamingRespon
         events = service.stream(conversation_id, prepared)
     else:
         events = service.stream(conversation_id, prepared, run_id=run_id)
-    return _response(_encode_stream(events, semaphore.release))
+    return _response(
+        _encode_stream(
+            events,
+            semaphore.release,
+            on_early_close=lambda: _finish_run(monitoring, run_id, "cancelled"),
+        )
+    )
