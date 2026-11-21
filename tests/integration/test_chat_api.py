@@ -13,7 +13,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from sqlalchemy import func, select
 
-from app.api.chat import _encode_stream, stream_chat
+from app.api.chat import _encode_event, _encode_stream, stream_chat
 from app.chat.schemas import ChatRequest
 from app.config import AppSettings
 from app.db.models import IndexGenerationRecord
@@ -444,6 +444,49 @@ async def test_api_stream_close_before_first_advance_finishes_cancelled_run(
             ).all()
             == []
         )
+
+
+@pytest.mark.asyncio
+async def test_encoding_failure_closes_upstream_releases_slot_and_cancels_run(
+    tmp_path, monkeypatch
+):
+    app, fake = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    service = app.state.chat_service
+    conversation_id = app.state.conversation_service.create().id
+    run_id = app.state.monitoring_service.start_run("question", conversation_id)
+    prepared = await service.prepare("question", conversation_id, run_id=run_id)
+    encoded = _encode_stream(
+        service.stream(conversation_id, prepared, run_id=run_id), semaphore.release
+    )
+
+    def fail_token_encoding(event):
+        if event.event == "token":
+            raise RuntimeError("encoding failed")
+        return _encode_event(event)
+
+    monkeypatch.setattr("app.api.chat._encode_event", fail_token_encoding)
+    assert (await anext(encoded)).startswith(b"event: start")
+    with pytest.raises(RuntimeError, match="encoding failed"):
+        await anext(encoded)
+
+    try:
+        assert fake.stream_closed.is_set()
+        assert not semaphore.locked()
+        detail = assert_one_terminal_run(app, "cancelled", "grounded ")
+        assert detail["error"] is None
+        factory = app.state.conversation_service.session_factory
+        with factory() as session:
+            assistant = session.scalar(
+                select(MessageRecord).where(MessageRecord.role == "assistant")
+            )
+            assert assistant is not None
+            assert assistant.content == "grounded "
+            assert assistant.cancelled is True
+    finally:
+        await encoded.aclose()
 
 
 @pytest.mark.asyncio

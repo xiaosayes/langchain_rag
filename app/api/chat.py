@@ -81,13 +81,13 @@ class _EncodedStream:
         self._started = True
         try:
             event = await self._events.__anext__()
+            return _encode_event(event)
         except StopAsyncIteration:
             await self.aclose()
             raise
         except BaseException:
             await self.aclose()
             raise
-        return _encode_event(event)
 
     async def aclose(self) -> None:
         if self._closed:
