@@ -226,13 +226,19 @@ async def test_monitoring_records_every_retrieval_stage_with_durations(
         "bm25",
         "rrf",
         "rerank",
-        "parent",
+        "parent_recovery",
+        "terminal",
     }
-    assert len(events) == 5
+    assert len(events) == 6
     assert all(event["status"] == "succeeded" for event in events)
     assert all(event["duration_ms"] >= 0 for event in events)
-    assert [event["stage"] for event in events[-3:]] == ["rrf", "rerank", "parent"]
-    assert events[-1]["details"] == {"requested": 2, "recovered": 2}
+    assert [event["stage"] for event in events[-4:]] == [
+        "rrf",
+        "rerank",
+        "parent_recovery",
+        "terminal",
+    ]
+    assert events[-2]["details"] == {"requested": 2, "recovered": 2}
 
 
 @pytest.mark.asyncio

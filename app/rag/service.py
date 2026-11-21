@@ -199,31 +199,59 @@ class RAGService:
         *,
         run_id: str | None = None,
     ) -> RAGPreparation:
-        retrieval_query = question
-        if history:
-            rewritten = await self.chat_model.ainvoke(
-                build_rewrite_messages(question, history)
-            )
-            rewritten_text = _content_text(rewritten.content).strip()
-            if rewritten_text:
-                retrieval_query = rewritten_text
-
-        if run_id is None:
-            result = await self.retrieval_service.asearch(retrieval_query, generation_id)
-        else:
-            result = await self.retrieval_service.asearch(
-                retrieval_query, generation_id, run_id=run_id
-            )
-        prepared = make_preparation(question, retrieval_query, result, generation_id)
-        if run_id is not None and self.monitoring_service is not None:
-            try:
-                self.monitoring_service.update_preparation(
-                    run_id,
-                    prepared,
-                    build_grounded_messages(question, prepared.documents),
+        started = self._stage_start(run_id)
+        try:
+            retrieval_query = question
+            if history:
+                rewritten = await self.chat_model.ainvoke(
+                    build_rewrite_messages(question, history)
                 )
-            except Exception:  # noqa: BLE001, S110 - diagnostics must not affect answers
-                pass
+                rewritten_text = _content_text(rewritten.content).strip()
+                if rewritten_text:
+                    retrieval_query = rewritten_text
+
+            if run_id is None:
+                result = await self.retrieval_service.asearch(
+                    retrieval_query, generation_id
+                )
+            else:
+                result = await self.retrieval_service.asearch(
+                    retrieval_query, generation_id, run_id=run_id
+                )
+            prepared = make_preparation(question, retrieval_query, result, generation_id)
+            if run_id is not None and self.monitoring_service is not None:
+                try:
+                    self.monitoring_service.update_preparation(
+                        run_id,
+                        prepared,
+                        build_grounded_messages(question, prepared.documents),
+                    )
+                except Exception:  # noqa: BLE001, S110 - diagnostics fail open
+                    pass
+        except BaseException as error:
+            status = (
+                "cancelled"
+                if isinstance(error, (asyncio.CancelledError, GeneratorExit))
+                else "failed"
+            )
+            self._record_stage(
+                run_id,
+                "prepare",
+                status,
+                started,
+                {"error_type": type(error).__name__},
+            )
+            raise
+        self._record_stage(
+            run_id,
+            "prepare",
+            "succeeded",
+            started,
+            {
+                "documents": len(prepared.documents),
+                "degraded": prepared.degraded,
+            },
+        )
         return prepared
 
     async def stream_answer(
@@ -257,7 +285,7 @@ class RAGService:
             )
             self._record_stage(
                 run_id,
-                "chat",
+                "chat_stream",
                 status,
                 started,
                 {"error_type": type(error).__name__},
@@ -265,7 +293,7 @@ class RAGService:
             raise
         self._record_stage(
             run_id,
-            "chat",
+            "chat_stream",
             "succeeded",
             started,
             {"insufficient_context": prepared.insufficient_context},

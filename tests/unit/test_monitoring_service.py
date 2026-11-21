@@ -107,7 +107,11 @@ def test_terminal_run_has_preparation_ordered_events_and_one_jsonl_snapshot(
     assert detail["duration_ms"] == pytest.approx(250)
     assert detail["created_at"].tzinfo is not None
     assert detail["ended_at"].tzinfo is not None
-    assert [event["stage"] for event in detail["events"]] == ["dense", "rerank"]
+    assert [event["stage"] for event in detail["events"]] == [
+        "dense",
+        "rerank",
+        "terminal",
+    ]
     assert detail["events"][0]["details"] == {"candidates": 3}
     assert detail["events"][0]["ended_at"] == started_at + timedelta(milliseconds=12.5)
 
@@ -119,6 +123,7 @@ def test_terminal_run_has_preparation_ordered_events_and_one_jsonl_snapshot(
     assert [event["stage"] for event in snapshots[0]["events"]] == [
         "dense",
         "rerank",
+        "terminal",
     ]
     if os.name == "posix":
         assert trace_path.stat().st_mode & 0o777 == 0o600

@@ -199,7 +199,7 @@ def test_authenticated_summary_list_filters_and_detail_without_csrf(
         {"type": "human", "content": "question"},
     ]
     assert detail["answer"] == "final answer"
-    assert [event["stage"] for event in detail["events"]] == ["dense"]
+    assert [event["stage"] for event in detail["events"]] == ["dense", "terminal"]
     assert detail["events"][0]["details"] == {"candidates": 2}
 
     for payload in (summary, listed, detail):

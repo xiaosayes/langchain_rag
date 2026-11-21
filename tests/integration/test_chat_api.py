@@ -394,7 +394,9 @@ async def test_close_after_token_finalizes_real_rag_before_terminal_snapshot(
         monitoring.trace_path.read_text(encoding="utf-8").splitlines()[0]
     )
     for traced in (detail, snapshot):
-        chat_events = [event for event in traced["events"] if event["stage"] == "chat"]
+        chat_events = [
+            event for event in traced["events"] if event["stage"] == "chat_stream"
+        ]
         assert len(chat_events) == 1
         assert chat_events[0]["status"] == "cancelled"
     factory = app.state.conversation_service.session_factory

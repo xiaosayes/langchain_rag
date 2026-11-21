@@ -299,7 +299,7 @@ class RetrievalService:
         except BaseException as error:
             self._record_stage(
                 run_id,
-                "parent",
+                "parent_recovery",
                 self._failure_status(error),
                 started,
                 {"error_type": type(error).__name__},
@@ -307,7 +307,7 @@ class RetrievalService:
             raise
         self._record_stage(
             run_id,
-            "parent",
+            "parent_recovery",
             "succeeded",
             started,
             {"requested": len(ranked), "recovered": len(parents)},

@@ -86,7 +86,9 @@ def test_monitoring_purge_removes_only_old_traces_and_is_idempotent(
     assert service.get_run(old_id) is None
     assert service.get_run(new_id) is not None
     with factory() as session:
-        assert session.scalars(select(ChatRunEventRecord)).one().run_id == new_id
+        remaining_events = session.scalars(select(ChatRunEventRecord)).all()
+        assert [event.run_id for event in remaining_events] == [new_id, new_id]
+        assert all(event.stage == "terminal" for event in remaining_events)
         assert session.get(ConversationRecord, "conversation-1") is not None
         assert session.get(MessageRecord, "message-1") is not None
         assert session.get(FeedbackRecord, "feedback-1") is not None

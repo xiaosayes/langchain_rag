@@ -174,6 +174,17 @@ class MonitoringService:
                 run.error = error
                 run.ended_at = ended_at
                 run.duration_ms = duration_ms
+                session.add(
+                    ChatRunEventRecord(
+                        run_id=run_id,
+                        stage="terminal",
+                        status=status,
+                        started_at=ended_at,
+                        ended_at=ended_at,
+                        duration_ms=0.0,
+                        details_json={},
+                    )
+                )
                 session.flush()
                 events = session.scalars(
                     select(ChatRunEventRecord)

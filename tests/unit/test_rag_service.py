@@ -222,9 +222,13 @@ async def test_monitoring_stores_full_prompt_retrieval_and_chat_stage(
     assert "现行制度规定，住宿标准为每天500元。" in detail["prompt_messages"][1][
         "content"
     ]
-    assert [event["stage"] for event in detail["events"]] == ["chat"]
-    assert detail["events"][0]["status"] == "succeeded"
-    assert detail["events"][0]["duration_ms"] >= 0
+    assert [event["stage"] for event in detail["events"]] == [
+        "prepare",
+        "chat_stream",
+        "terminal",
+    ]
+    assert all(event["status"] == "succeeded" for event in detail["events"])
+    assert all(event["duration_ms"] >= 0 for event in detail["events"])
     assert retrieval_service.run_ids == [run_id]
 
 
