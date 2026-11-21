@@ -21,7 +21,7 @@
 | Mock 内容 | 通用企业知识库，覆盖 HR、行政、IT、财务、采购、法务、产品制度 |
 | 文件格式 | TXT、DOCX、文本 PDF、扫描 PDF、XLSX；Q&A 使用 XLSX，评测集使用 JSONL |
 | OCR | PaddleOCR 中英文识别；默认 CPU，可在兼容性检查后切换 GPU |
-| LLM | 阿里百炼 `deepseek_v4.1_flash_1017`，作为可配置模型 ID |
+| LLM | 阿里百炼 `deepseek-v4.1-flash-1017`，作为可配置模型 ID |
 | Embedding | 阿里百炼 `text-embedding-v4`，默认维度 1024 |
 | Rerank | 阿里百炼 `qwen3-rerank` |
 | 向量数据库 | Qdrant 独立二进制进程 |
@@ -308,7 +308,7 @@ GET    /health/ready
 ```yaml
 llm:
   provider: bailian
-  model: "deepseek_v4.1_flash_1017"
+  model: "deepseek-v4.1-flash-1017"
   temperature: 0.1
   max_output_tokens: 2048
   timeout_seconds: 60

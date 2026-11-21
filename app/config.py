@@ -18,7 +18,7 @@ SUPPORTED_EMBEDDING_DIMENSIONS = frozenset(
 
 
 class LLMSettings(BaseModel):
-    model: str = "deepseek_v4.1_flash_1017"
+    model: str = "deepseek-v4.1-flash-1017"
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     temperature: float = 0.1
     max_output_tokens: int = 2048

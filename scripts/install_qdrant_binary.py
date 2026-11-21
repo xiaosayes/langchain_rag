@@ -30,7 +30,9 @@ ASSETS = {
         "qdrant.exe",
     ),
     "ubuntu": (
-        "qdrant-x86_64-unknown-linux-gnu.tar.gz",
+        # The GNU 1.15.4 binary requires GLIBC_2.38, while Ubuntu 22.04 has 2.35.
+        # The official musl build avoids any host glibc upgrade or replacement.
+        "qdrant-x86_64-unknown-linux-musl.tar.gz",
         "application/x-gtar",
         "qdrant",
     ),

@@ -1,6 +1,6 @@
 model_provider: bailian
 llm:
-  model: deepseek_v4.1_flash_1017
+  model: deepseek-v4.1-flash-1017
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   temperature: 0.1
   max_output_tokens: 2048

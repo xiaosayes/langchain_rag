@@ -15,7 +15,7 @@
 - Server dependency metadata uses Conda environment name `langchain_test`; no server command is executed in this phase.
 - Docker is allowed only for local Qdrant integration tests; production code and deployment metadata must not require Docker.
 - Generate exactly 25 TXT, 25 DOCX, 25 PDF (20 text and 5 scanned), and 25 XLSX ordinary documents, plus 1000 knowledge Q&A and 100 held-out evaluation questions.
-- Default models are `deepseek_v4.1_flash_1017`, `text-embedding-v4` with dimension 1024, and `qwen3-rerank`; tests never silently substitute another real model.
+- Default models are `deepseek-v4.1-flash-1017`, `text-embedding-v4` with dimension 1024, and `qwen3-rerank`; tests never silently substitute another real model.
 - Real API tests require both an explicit `RUN_BAILIAN_TESTS=1` and keys in `.env`; no key is committed or printed.
 - Parent chunks default to 1000 characters, child chunks to 250 with 50 overlap, dense/BM25 recall to 30, RRF `k=60`, and final parent count to 6.
 - All new Python code passes `uv run ruff check .` and `uv run pytest`; each task commits only its own reviewed files.
@@ -146,7 +146,7 @@ Use Pydantic models for `ChunkSettings`, `EmbeddingSettings`, `RerankSettings`, 
 # configs/default.yaml
 model_provider: bailian
 llm:
-  model: deepseek_v4.1_flash_1017
+  model: deepseek-v4.1-flash-1017
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   temperature: 0.1
   max_output_tokens: 2048
