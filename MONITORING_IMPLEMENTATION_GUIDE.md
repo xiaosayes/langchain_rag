@@ -4,6 +4,407 @@
 >
 > 阅读方式：第一部分讲清实现流程和使用方法；后续部分按文件给出完整源码、代码块功能以及逐行中文解释。文档覆盖本次新增或修改的全部 28 个 Python、TypeScript、TSX、CSS、YAML 文件（含测试），不是只选关键代码。
 
+## 导读：应该如何读这份代码工程
+
+> 这一节针对**整个 RAG 工程**，告诉你先读什么、后读什么、每一步要抓住什么。后面的逐行释义则专门覆盖本次监控功能修改的 28 个文件；本节提到的其他核心文件，应结合源文件和对应测试一起阅读。
+>
+> 最推荐的方式不是从第一个文件夹一路看到最后一个文件夹，而是先追随两条真实路径：**文档如何进入索引**，以及**一个问题如何变成带引用的回答**。理解这两条路径后，再读 Web、监控和前端会容易很多。
+
+### 一、开始前先建立三个正确观念
+
+#### 1. LangChain 是模型与数据抽象的“连接层”，不是整个系统
+
+本项目没有把所有逻辑都交给一个现成的 LangChain Chain。下面这些关键能力是项目自己明确实现的：
+
+- 文档解析、扫描 PDF OCR 和知识问答解析；
+- 父子块关系、稳定 ID 和索引代次；
+- Qdrant 与 BM25 两路召回、RRF、Rerank 和父块恢复；
+- SQLite 任务队列、文档版本、会话、反馈和监控；
+- SSE 协议、引用过滤、React 页面。
+
+LangChain 主要负责：
+
+- `Embeddings` 嵌入接口；
+- `ChatOpenAI` / `BaseChatModel` 聊天模型接口；
+- `SystemMessage`、`HumanMessage`、`AIMessage` 等消息抽象；
+- `Document` 检索文档抽象；
+- `RecursiveCharacterTextSplitter` 文本切分器；
+- 同步/异步模型调用和流式输出的统一形式。
+
+所以阅读时要始终问一句：**这一段是 LangChain 提供的通用能力，还是项目自己实现的 RAG 约束？**
+
+#### 2. 先理解对象，再理解函数
+
+建议先认识这些核心对象：
+
+| 对象 | 通俗含义 | 主要位置 |
+|---|---|---|
+| `ParsedBlock` | 从原始文件解析出的有序文本块 | `app/domain/models.py` |
+| `ParentChunk` | 用来给模型阅读的大块上下文 | `app/domain/models.py` |
+| `ChildChunk` | 用来检索的小块，指向所属父块 | `app/domain/models.py` |
+| `Document` | LangChain 通用的“正文 + metadata”文档 | `app/retrieval/service.py`、`app/rag/service.py` |
+| `RAGPreparation` | 回答前已经准备好的问题、资料、引用和代次 | `app/rag/service.py` |
+| `ChatRunRecord` | 一次 Web 问答的本地监控主记录 | `app/web/records.py` |
+
+#### 3. 每读一个模块，都同时读它的测试
+
+测试不是附属品，而是最短的“使用说明书”。例如：
+
+- 读 `app/rag/service.py` 时配 `tests/unit/test_rag_service.py`；
+- 读 `app/retrieval/service.py` 时配 `tests/unit/test_retrieval_service.py`；
+- 读 `app/api/chat.py` 时配 `tests/integration/test_chat_api.py`；
+- 读监控页面时配 `frontend/src/pages/MonitoringPage.test.tsx`。
+
+先看测试名称，了解模块要保证什么；再看测试怎样构造输入；最后看生产代码怎样实现。
+
+### 二、推荐阅读总顺序
+
+```text
+配置与入口
+  → 文档解析与父子切块
+  → 索引构建与活动代次
+  → 混合检索
+  → LangChain 模型、消息与流式回答
+  → Web 会话与 SSE
+  → 本地监控
+  → React 页面
+  → 端到端测试
+```
+
+如果时间有限，先读“第三至第六步”和后面的“LangChain 重点专题”，即可掌握主链路。
+
+### 三、第 1 步：先读配置和启动入口
+
+建议顺序：
+
+1. `pyproject.toml`
+2. `configs/default.yaml`
+3. `app/config.py`
+4. `app/cli.py`
+5. `app/bootstrap.py`
+
+重点回答：
+
+- 项目使用哪些 LangChain 包：`langchain`、`langchain-openai`、`langchain-text-splitters`？
+- Chat、Embedding、Rerank 各是什么模型，向量是多少维？
+- 父子块大小、召回数量、最终父块数量分别是多少？
+- `RAG_STATE_DIR` 把 SQLite、BM25 和监控数据放在哪里？
+- `build_rag_service()` 怎样把模型、检索器和仓储组装成 `RAGService`？
+
+`app/bootstrap.py` 是“组装车间”，重点看：
+
+- `_model_adapters()` 在真实百炼与测试替身之间如何选择；
+- `_chat_model()` 为什么返回统一的 `BaseChatModel`；
+- `build_index_builder()` 和 `build_rag_service()` 分别组装哪条流程；
+- `FakeEmbeddings`、`FakeReranker`、`FakeChatModel` 如何让测试不访问真实 API。
+
+不要一开始陷入所有配置字段。先记住模型、向量维度、Qdrant 地址、切块和检索预算即可。
+
+### 四、第 2 步：沿“文档入库”阅读
+
+推荐阅读：
+
+1. `app/ingestion/registry.py`
+2. `app/ingestion/text_office.py`
+3. `app/ingestion/pdf.py`
+4. `app/ingestion/ocr.py`
+5. `app/domain/models.py`
+6. `app/ingestion/chunker.py`
+7. `app/indexing/builder.py`
+8. `app/indexing/repository.py`
+9. `app/retrieval/qdrant_store.py`
+10. `app/retrieval/bm25.py`
+
+把流程写成一句话：
+
+```text
+原始文件
+  → ParsedBlock
+  → ParentChunk / ChildChunk
+  → Child 做 Embedding 并写入 Qdrant，同时进入 BM25
+  → Parent/Child 及代次元数据写入 SQLite
+  → 完整新代次激活
+```
+
+在 `chunker.py` 重点看：
+
+- 为什么知识问答必须保持原子，不能被切散；
+- 为什么 Child 用于检索、Parent 用于回答；
+- `_splitter()` 怎样使用 LangChain 的 `RecursiveCharacterTextSplitter`；
+- `stable_id()` 如何让内容、文档和层级关系可追踪。
+
+在 `builder.py` 重点看“先完整构建，再激活”的顺序，而不是逐行抠每个数据库字段。核心问题是：**失败时为什么旧索引仍然可用？**
+
+### 五、第 3 步：沿“一次检索”阅读
+
+先读：
+
+1. `app/retrieval/service.py`
+2. `app/retrieval/rrf.py`
+3. `app/retrieval/qdrant_store.py`
+4. `app/retrieval/bm25.py`
+5. `app/indexing/repository.py`
+
+在 `RetrievalService.asearch()` 上画顺序图：
+
+```text
+查询问题
+  ├─ Embedding → Qdrant Dense 召回
+  └─ jieba 分词 → BM25 召回
+             ↓
+            RRF
+             ↓
+        Bailian Rerank
+             ↓
+      根据 parent_id 恢复父块
+             ↓
+  去重、单文档限制、父块数与字符预算
+             ↓
+       list[Document]
+```
+
+重点理解：
+
+- 两路检索是并发的，但后续 RRF 有固定顺序；
+- 一路失败可以降级，两路都失败才无法检索；
+- Rerank 失败保留融合顺序并标记 degraded；
+- `Document.page_content` 是最终提供给模型的父块正文；
+- `Document.metadata` 带 generation/document/parent 等引用所需信息。
+
+读测试时重点看候选顺序、父块预算、双路失败和 Rerank 降级，而不只是“返回了几条”。
+
+### 六、第 4 步：沿“一次回答”阅读
+
+建议按调用顺序读：
+
+1. `app/cli.py` 的 `stream_cli_answer()`（单次调用最短）
+2. `app/rag/prompts.py`
+3. `app/rag/service.py`
+4. `app/models/bailian.py`
+5. 再读 `app/chat/service.py` 和 `app/api/chat.py`（Web 完整路径）
+
+单轮 CLI 的简化路径：
+
+```text
+取得 active generation
+  → RAGService.prepare()
+  → RetrievalService.asearch()
+  → make_preparation() 生成 S1…Sn 引用
+  → build_grounded_messages()
+  → chat_model.astream()
+  → _CitationStreamFilter 过滤引用
+  → 输出回答与 Citations
+```
+
+Web 路径在外层多做一些事情：
+
+```text
+登录 + CSRF + 并发限制
+  → 读取此前六条历史并保存本轮用户消息
+  → RAG 准备与回答
+  → SSE start/token/citations/done/error
+  → 保存助手消息与本地监控
+```
+
+读 `RAGPreparation` 时要特别明白：它不是模型返回值，而是**模型调用前**就确定的资料包。引用编号 S1、S2 在调用模型前已绑定真实父块，所以后面才能检查模型是否编造 `[S99]`。
+
+### 七、LangChain 重点专题：建议逐个子主题阅读
+
+#### 专题 1：`Embeddings`——统一“文字变向量”的接口
+
+先读 `app/models/bailian.py` 的 `BailianEmbeddings`，再对照 `app/bootstrap.py` 的 `FakeEmbeddings`。
+
+重点看四个方法：
+
+- `embed_documents()`：同步批量嵌入；
+- `aembed_documents()`：异步批量嵌入；
+- `embed_query()`：单个查询嵌入；
+- `aembed_query()`：异步单查询嵌入。
+
+要理解的不是“LangChain 替你调用百炼”，而是：项目继承 LangChain 的 `Embeddings` 抽象，自己用 httpx 实现百炼协议、重试、响应检查和维度校验。这样索引器和检索器只依赖统一接口，测试才能替换成确定性的 FakeEmbeddings。
+
+继续追问：
+
+- 为什么响应要按 `text_index` 恢复原顺序？
+- 为什么必须检查向量数量和 1024 维？
+- 同步批量和异步批量分别在什么场景使用？
+
+#### 专题 2：`ChatOpenAI`——百炼兼容 OpenAI 协议的聊天入口
+
+读 `app/models/bailian.py` 末尾的 `create_chat_model()`。
+
+逐项对应配置：
+
+- `model`：真实模型 ID；
+- `api_key`：来自环境配置的 SecretStr；
+- `base_url`：百炼 OpenAI 兼容入口；
+- `temperature`：回答随机性；
+- `max_completion_tokens`：输出上限；
+- `timeout` / `max_retries`：网络可靠性。
+
+这里 `ChatOpenAI` 来自 `langchain-openai`，不是项目自己封装的 HTTP 流。Embedding 和 Rerank 则走项目的原生百炼适配器，三者不要混为一谈。
+
+#### 专题 3：消息类型——系统规则、历史与最新问题怎样进入模型
+
+先读 `app/rag/prompts.py`，再读 `app/chat/service.py` 的 `_langchain_message()`。
+
+三种常见消息：
+
+- `SystemMessage`：约束模型行为，例如只能依据资料回答；
+- `HumanMessage`：用户问题或需要模型处理的请求；
+- `AIMessage`：此前助手回答，用于多轮历史。
+
+`build_rewrite_messages()` 用于把“它多少钱？”这类追问改写为可独立检索的问题；`build_grounded_messages()` 用于把原始问题和带来源编号的父块组成最终 Prompt。
+
+注意：**改写查询和正式回答是两次不同的模型调用目的**。第一轮没有历史时通常不改写；正式回答仍使用原始问题，而不是只使用改写后的检索串。
+
+#### 专题 4：`BaseChatModel` 的 `ainvoke()` 与 `astream()`
+
+在 `app/rag/service.py` 对比：
+
+- 历史改写使用 `await self.chat_model.ainvoke(...)`：等待完整改写结果；
+- 正式回答使用 `async for chunk in self.chat_model.astream(...)`：逐块读取模型输出。
+
+重点理解 `astream()` 返回的是异步迭代流，不是一次性字符串。每一块可能是半个词、一个标点，甚至引用标记的一半，因此需要 `_CitationStreamFilter` 跨 chunk 暂存 `[`、 `[S` 等残片。
+
+然后读 `_content_text()`：模型内容既可能是纯字符串，也可能是内容块列表，项目只拼接文本类型块。
+
+#### 专题 5：`Document`——检索结果与 Prompt 之间的桥梁
+
+在 `app/retrieval/service.py` 看 `select_parent_documents()` 如何创建 `Document`；在 `app/rag/service.py` 看 `make_preparation()` 如何把它变成 Citation；最后在 `app/rag/prompts.py` 看正文怎样被标为 `[S1]`、`[S2]`。
+
+把同一个对象的三次用途连起来：
+
+```text
+父块正文 → Document.page_content → Prompt 来源 / Citation.text
+父块元数据 → Document.metadata → document_id、parent_id、generation_id
+```
+
+LangChain 的 `Document` 本身不知道你的引用规则；S1 编号、父块选择和引用校验都是项目逻辑。
+
+#### 专题 6：`RecursiveCharacterTextSplitter`——LangChain 在切块中的实际位置
+
+读 `app/ingestion/chunker.py` 的 `_splitter()` 和 `chunk_blocks()`。
+
+切分器只负责按尺寸和分隔符切文本。项目另外负责：
+
+- 保留标题、页码、Sheet、行号等来源结构；
+- 知识问答不拆分；
+- 先形成父块，再形成子块；
+- 计算稳定 ID 和内容哈希；
+- 保存 parent_id 关系。
+
+不要把“调用了 LangChain 切分器”理解为“父子块策略由 LangChain 自动完成”。
+
+#### 专题 7：`SimpleChatModel` 与测试替身
+
+读 `app/bootstrap.py` 的 `FakeChatModel` 和 `tests/unit/test_rag_service.py` 的假模型。
+
+`FakeChatModel` 继承 `SimpleChatModel`，实现 `_call()`，所以测试可以复用 LangChain 的消息和调用边界，却不访问真实模型。它根据 Prompt 中的来源返回确定答案，使测试能集中验证引用、流式输出和拒答。
+
+阅读测试替身时要区分：
+
+- 它证明的是项目调用链和约束是否正确；
+- 它不能证明真实百炼的回答质量；
+- 真实模型验证必须由显式真实 API 测试完成。
+
+#### 专题 8：本项目没有依赖哪些 LangChain 高级封装
+
+阅读时可以明确放下这些负担：当前主流程不是依赖 LCEL、`RunnableSequence`、现成 RetrievalQA 或 LangChain 自带向量库来隐藏业务逻辑。项目直接调用模型和消息接口，自己控制检索、代次、引用和持久化。
+
+这样做的好处是流程透明、容易测试；代价是项目需要自行维护更多边界代码。理解这一点，比去套一个“标准 LangChain 教程”更重要。
+
+### 八、第 5 步：读 Web 会话、SSE 与监控
+
+建议顺序：
+
+1. `app/chat/service.py`
+2. `app/api/chat.py`
+3. `app/monitoring/service.py`
+4. `app/api/monitoring.py`
+5. `frontend/src/api/client.ts`
+6. `frontend/src/pages/ChatPage.tsx`
+7. `frontend/src/pages/MonitoringPage.tsx`
+
+重点区分三层：
+
+- **业务层**：历史、消息、引用、反馈怎样保存；
+- **传输层**：SSE 事件怎样编码、断连和并发槽怎样清理；
+- **观测层**：同样的调用过程怎样被记录，但不允许改变业务结果。
+
+然后读监控 API 和页面，理解为什么采集 fail-open，而查询/清理必须 strict。
+
+### 九、第 6 步：用测试把知识串起来
+
+推荐最后按以下顺序读：
+
+1. `tests/unit/test_rag_service.py`：模型、Prompt、引用和拒答；
+2. `tests/unit/test_retrieval_service.py`：混合检索与降级；
+3. `tests/integration/test_chat_api.py`：Web SSE、持久化、取消和监控；
+4. `tests/e2e/test_web_flow.py`：真实 Qdrant + 假模型完整流程；
+5. `frontend/e2e/web-flow.spec.ts`：真实浏览器核心流程；
+6. `tests/integration/test_bailian_api.py`：真实模型显式验收边界。
+
+可以采用“断言反推法”：先看一个测试最后断言什么，再回头找输入在哪、调用经过哪些对象、为什么结果必须如此。
+
+### 十、建议的两次动手阅读练习
+
+#### 练习 A：追踪一条引用
+
+以 `费用与预算管理规范（085）的单笔差旅报销上限是多少？` 为例，在源码中依次找到：
+
+1. 问题进入 `RAGService.prepare` 的位置；
+2. 查询向量生成位置；
+3. RRF 和 Rerank 位置；
+4. 某个 Child 的 parent_id 恢复 Parent 的位置；
+5. Parent 变成 Document 和 S1 的位置；
+6. S1 进入 Prompt 的位置；
+7. 模型回答中 `[S1]` 被过滤或保留的位置；
+8. SSE citations 和最终引用文本的位置。
+
+完成这一步，就真正读懂了 RAG 主链路。
+
+#### 练习 B：故意制造一次故障
+
+在测试中思考，而不是直接改生产环境：
+
+- Embedding 失败时 Dense 怎样降级；
+- BM25 同时失败时为什么抛 RetrievalUnavailable；
+- Rerank 失败为什么仍可以回答但 degraded=true；
+- 模型流到一半取消时部分回答怎样保存；
+- SQLite 监控写入失败为什么不应改变回答；
+- 监控查询失败为什么却应返回 503。
+
+这能帮助你理解“核心功能”和“监控功能”的故障边界。
+
+### 十一、读代码时最容易产生的误解
+
+- **误解：有 LangChain 就自动得到高质量 RAG。** 实际质量还取决于解析、切块、召回、重排、Prompt 和评测。
+- **误解：Child 会直接全部塞给模型。** 实际先用 Child 检索，再恢复 Parent 作为上下文。
+- **误解：引用是模型生成后再去搜索补上的。** 实际引用在模型调用前已绑定检索父块。
+- **误解：`astream()` 每次一定给完整单词或完整引用。** 实际 chunk 边界任意，所以需要跨块过滤。
+- **误解：Fake 模型测试通过就等于真实模型质量通过。** 两者证明的内容不同。
+- **误解：监控记录了完整 Trace 就应该影响回答。** 监控采集只能旁观，失败不得拖垮核心问答。
+
+### 十二、读完后自测清单
+
+如果能不看代码回答下面问题，说明已经掌握工程主线：
+
+1. 为什么索引用 Child、回答用 Parent？
+2. 为什么新索引构建失败不会破坏旧代次？
+3. Dense、BM25、RRF、Rerank 各自解决什么问题？
+4. `BailianEmbeddings` 与 `ChatOpenAI` 分别怎样接入 LangChain？
+5. `SystemMessage` 和 `HumanMessage` 在最终 Prompt 中各承担什么职责？
+6. `ainvoke()` 和 `astream()` 分别用在何处，为什么？
+7. S1 从哪一个父块产生，怎样进入 Prompt、回答和 SSE？
+8. Web 历史在哪读取，本轮用户消息在哪保存？
+9. 监控为什么既要完整记录，又不能影响 RAG 主流程？
+10. 哪些结果能用 Fake 测试证明，哪些必须到服务器用真实模型验证？
+
+建议第一遍先能回答 1、3、4、6、7；第二遍再补齐其余问题。
+
+---
+
 ## 一、实现目标
 
 本次实现解决四个问题：
