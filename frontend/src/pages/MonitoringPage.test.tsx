@@ -161,7 +161,9 @@ describe("local monitoring", () => {
     expect(within(recent).getByText("已取消")).toBeInTheDocument();
     expect(within(recent).getByText("降级")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "查看详情 run-failed" }));
+    fireEvent.click(screen.getByRole("button", {
+      name: "查看详情 Failed question run-failed",
+    }));
     expect(await screen.findByRole("region", { name: "运行详情" })).toBeInTheDocument();
     expect(screen.getByText(/Failed question <img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
     expect(screen.getByText("System <b>prompt</b>")).toBeInTheDocument();
@@ -176,8 +178,14 @@ describe("local monitoring", () => {
 
     expect(screen.queryByText(/点赞|点踩|喜欢|不喜欢|满意率/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\b(?:likes?|dislikes?)\b/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "文档管理" })).toHaveAttribute("href", "/documents");
-    expect(screen.getByRole("link", { name: "返回对话" })).toHaveAttribute("href", "/chat");
+    expect(screen.getByRole("link", { name: "文档管理" }))
+      .toHaveAttribute("href", "/documents");
+    expect(screen.getByRole("link", { name: "文档管理" }))
+      .toHaveAttribute("aria-label", "文档管理");
+    expect(screen.getByRole("link", { name: "返回对话" }))
+      .toHaveAttribute("href", "/chat");
+    expect(screen.getByRole("link", { name: "返回对话" }))
+      .toHaveAttribute("aria-label", "返回对话");
   });
 
   it("filters by status and refreshes only on demand without polling", async () => {

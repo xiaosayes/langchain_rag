@@ -39,7 +39,7 @@ def test_non_api_gets_serve_index_and_existing_assets(
     (assets / "app.js").write_text("console.log('app')", encoding="utf-8")
     client = _client(tmp_path, monkeypatch)
 
-    for path in ("/", "/chat", "/chat/conversation-1", "/documents"):
+    for path in ("/", "/chat", "/chat/conversation-1", "/documents", "/monitoring"):
         response = client.get(path)
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")

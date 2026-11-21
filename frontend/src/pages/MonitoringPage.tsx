@@ -192,7 +192,7 @@ export default function MonitoringPage() {
         <Button
           type="link"
           className="monitoring-question"
-          aria-label={`查看详情 ${run.id}`}
+          aria-label={`查看详情 ${question} ${run.id}`}
           onClick={() => void loadDetail(run.id)}
         >
           {question}
@@ -236,8 +236,8 @@ export default function MonitoringPage() {
           <span aria-hidden="true"><MonitorOutlined /></span> 本地运行监控
         </Typography.Title>
         <Space wrap>
-          <Link to="/chat"><span aria-hidden="true"><MessageOutlined /></span> <span className="header-label">返回对话</span></Link>
-          <Link to="/documents"><span aria-hidden="true"><FileTextOutlined /></span> <span className="header-label">文档管理</span></Link>
+          <Link to="/chat" aria-label="返回对话"><span aria-hidden="true"><MessageOutlined /></span> <span className="header-label">返回对话</span></Link>
+          <Link to="/documents" aria-label="文档管理"><span aria-hidden="true"><FileTextOutlined /></span> <span className="header-label">文档管理</span></Link>
           <Button
             icon={<ReloadOutlined />}
             loading={loading}
