@@ -1,10 +1,13 @@
 import logging
+from pathlib import Path
 
 import pytest
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 
+from app.db.session import create_session_factory
 from app.domain.models import SearchHit
+from app.monitoring.service import MonitoringService
 from app.rag.service import INSUFFICIENT_CONTEXT_REFUSAL, RAGService
 from app.retrieval.service import RetrievalResult
 
@@ -35,9 +38,13 @@ class FakeRetrievalService:
         self.documents = documents
         self.degraded = degraded
         self.calls: list[tuple[str, str]] = []
+        self.run_ids: list[str | None] = []
 
-    async def asearch(self, query: str, generation_id: str) -> RetrievalResult:
+    async def asearch(
+        self, query: str, generation_id: str, *, run_id: str | None = None
+    ) -> RetrievalResult:
         self.calls.append((query, generation_id))
+        self.run_ids.append(run_id)
         return RetrievalResult(
             hits=[
                 SearchHit(
@@ -178,6 +185,73 @@ async def test_citations_label_each_supplied_parent_exactly_once(
             prepared.citations, prepared.documents, strict=True
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_monitoring_stores_full_prompt_retrieval_and_chat_stage(
+    tmp_path: Path,
+    fake_chat: FakeStreamingChatModel,
+    retrieval_service: FakeRetrievalService,
+):
+    monitoring = MonitoringService(
+        create_session_factory(tmp_path / "index.sqlite3"), tmp_path / "state"
+    )
+    service = RAGService(
+        fake_chat,
+        retrieval_service,
+        object(),  # type: ignore[arg-type]
+        monitoring_service=monitoring,
+    )
+    run_id = monitoring.start_run("住宿标准？", "conversation-1")
+
+    prepared = await service.prepare("住宿标准？", [], "gen-test", run_id=run_id)
+    chunks = [chunk async for chunk in service.stream_answer(prepared, run_id=run_id)]
+    monitoring.finish_run(run_id, "succeeded", "".join(chunks))
+
+    detail = monitoring.get_run(run_id)
+    assert detail is not None
+    assert detail["message_id"] is None
+    assert detail["retrieval_query"] == "住宿标准？"
+    assert detail["retrieved_text"] == (
+        "现行制度规定，住宿标准为每天500元。\n\n旧版制度规定，住宿标准为每天300元。"
+    )
+    assert [message["content"] for message in detail["prompt_messages"]] == [
+        message.content for message in fake_chat.answer_messages
+    ]
+    assert "住宿标准？" in detail["prompt_messages"][1]["content"]
+    assert "现行制度规定，住宿标准为每天500元。" in detail["prompt_messages"][1][
+        "content"
+    ]
+    assert [event["stage"] for event in detail["events"]] == ["chat"]
+    assert detail["events"][0]["status"] == "succeeded"
+    assert detail["events"][0]["duration_ms"] >= 0
+    assert retrieval_service.run_ids == [run_id]
+
+
+@pytest.mark.asyncio
+async def test_monitoring_failures_do_not_change_preparation_or_answer(
+    fake_chat: FakeStreamingChatModel,
+    retrieval_service: FakeRetrievalService,
+):
+    class BrokenMonitoring:
+        def update_preparation(self, *args, **kwargs):
+            raise RuntimeError("monitoring unavailable")
+
+        def record_event(self, *args, **kwargs):
+            raise RuntimeError("monitoring unavailable")
+
+    service = RAGService(
+        fake_chat,
+        retrieval_service,
+        object(),  # type: ignore[arg-type]
+        monitoring_service=BrokenMonitoring(),  # type: ignore[arg-type]
+    )
+
+    prepared = await service.prepare("住宿标准？", [], "gen-test", run_id="run-1")
+    chunks = [chunk async for chunk in service.stream_answer(prepared, run_id="run-1")]
+
+    assert prepared.retrieval_query == "住宿标准？"
+    assert "".join(chunks) == "住宿标准为每天500元[S1]。"
 
 
 @pytest.mark.asyncio

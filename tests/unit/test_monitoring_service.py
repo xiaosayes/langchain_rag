@@ -68,6 +68,7 @@ def test_terminal_run_has_preparation_ordered_events_and_one_jsonl_snapshot(
     monkeypatch.setattr("app.monitoring.service.perf_counter", lambda: next(ticks))
     service = make_service(tmp_path)
     run_id = service.start_run("original question", "conversation-1")
+    service.set_message_id(run_id, "message-1")
     started_at = datetime(2026, 11, 20, 10, 0, tzinfo=UTC)
 
     service.record_event(
@@ -91,6 +92,8 @@ def test_terminal_run_has_preparation_ordered_events_and_one_jsonl_snapshot(
     detail = service.get_run(run_id)
     assert detail is not None
     assert detail["question"] == "original question"
+    assert detail["message_id"] == "message-1"
+    assert [run["id"] for run in service.list_runs(query="message-1")] == [run_id]
     assert detail["retrieval_query"] == "rewritten question"
     assert detail["retrieved_text"] == ("first retrieved text\n\nsecond retrieved text")
     assert detail["prompt_messages"] == [
@@ -283,6 +286,7 @@ def test_sql_failures_are_fail_open_and_do_not_log_secrets_or_tracebacks(
     assert isinstance(run_id, str)
     service.record_event(run_id, "dense", "succeeded", datetime.now(UTC), 1)
     service.update_preparation(run_id, make_preparation(), [])
+    service.set_message_id(run_id, "message-1")
     service.finish_run(run_id, "failed", "partial", "sanitized error")
 
     assert service.summary(24)["total"] == 0

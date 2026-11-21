@@ -8,6 +8,7 @@ from app.domain.models import ParentChunk, SearchHit
 from app.indexing.repository import IndexRepository
 from app.indexing.vector_space import VectorSpace
 from app.models.bailian import RerankResult
+from app.monitoring.service import MonitoringService
 from app.retrieval.service import RetrievalService, RetrievalUnavailable
 
 TEST_VECTOR_SPACE = VectorSpace("fake", "test-model", 2, "cosine")
@@ -194,6 +195,72 @@ async def test_rerank_order_controls_parent_selection(
     }
     assert sum(len(document.page_content) for document in result.documents) <= 12000
     assert result.degraded is False
+
+
+@pytest.mark.asyncio
+async def test_monitoring_records_every_retrieval_stage_with_durations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = build_service(
+        tmp_path,
+        monkeypatch,
+        dense_hits=[make_hit("child-dense", "parent-dense")],
+        bm25_hits=[make_hit("child-bm25", "parent-bm25", source="bm25")],
+        parents=[make_parent("parent-dense"), make_parent("parent-bm25")],
+    )
+    monitoring = MonitoringService(
+        create_session_factory(tmp_path / "monitoring.sqlite3"), tmp_path / "state"
+    )
+    service.monitoring_service = monitoring
+    run_id = monitoring.start_run("policy", "conversation-1")
+
+    result = await service.asearch("policy", "gen-test", run_id=run_id)
+    monitoring.finish_run(run_id, "succeeded", "answer")
+
+    assert {hit.child_id for hit in result.hits} == {"child-bm25", "child-dense"}
+    detail = monitoring.get_run(run_id)
+    assert detail is not None
+    events = detail["events"]
+    assert {event["stage"] for event in events} == {
+        "dense",
+        "bm25",
+        "rrf",
+        "rerank",
+        "parent",
+    }
+    assert len(events) == 5
+    assert all(event["status"] == "succeeded" for event in events)
+    assert all(event["duration_ms"] >= 0 for event in events)
+    assert [event["stage"] for event in events[-3:]] == ["rrf", "rerank", "parent"]
+    assert events[-1]["details"] == {"requested": 2, "recovered": 2}
+
+
+@pytest.mark.asyncio
+async def test_monitoring_failure_does_not_change_retrieval_result(
+    retrieval_service: RetrievalService, monkeypatch: pytest.MonkeyPatch
+):
+    def fail_monitoring(*args, **kwargs):
+        raise RuntimeError("monitoring unavailable")
+
+    retrieval_service.monitoring_service = MonitoringService(
+        retrieval_service.repository.session_factory, Path("unused")
+    )
+    monkeypatch.setattr(
+        retrieval_service.monitoring_service, "record_event", fail_monitoring
+    )
+
+    result = await retrieval_service.asearch("报销标准", "gen-test", run_id="run-1")
+
+    assert [hit.child_id for hit in result.hits] == [
+        "child-from-second-store",
+        "child-from-first-store",
+        "child-shared",
+    ]
+    assert [document.metadata["parent_id"] for document in result.documents] == [
+        "parent-second",
+        "parent-first",
+        "parent-shared",
+    ]
 
 
 @pytest.mark.asyncio

@@ -120,6 +120,17 @@ class MonitoringService:
         except Exception as error:  # noqa: BLE001 - monitoring must fail open
             self._warn("preparation", error)
 
+    def set_message_id(self, run_id: str, message_id: str) -> None:
+        """Associate the assistant message as soon as streaming assigns its ID."""
+        try:
+            with self.session_factory.begin() as session:
+                run = session.get(ChatRunRecord, run_id)
+                if run is None or run.status != "running":
+                    return
+                run.message_id = message_id
+        except Exception as error:  # noqa: BLE001 - monitoring must fail open
+            self._warn("message", error)
+
     @staticmethod
     def _prompt_message(message: Any) -> dict[str, Any]:
         if isinstance(message, dict):

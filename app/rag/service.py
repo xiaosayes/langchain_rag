@@ -1,10 +1,15 @@
 """Grounded RAG preparation and citation-safe answer streaming."""
 
+from __future__ import annotations
+
+import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
+from datetime import UTC, datetime
+from time import perf_counter
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.documents import Document
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -13,6 +18,9 @@ from langchain_core.messages import BaseMessage
 from app.indexing.repository import IndexRepository
 from app.rag.prompts import build_grounded_messages, build_rewrite_messages
 from app.retrieval.service import RetrievalResult, RetrievalService
+
+if TYPE_CHECKING:
+    from app.monitoring.service import MonitoringService
 
 INSUFFICIENT_CONTEXT_REFUSAL = "根据当前知识库，无法可靠回答该问题。"
 
@@ -147,13 +155,49 @@ class RAGService:
         chat_model: BaseChatModel,
         retrieval_service: RetrievalService,
         repository: IndexRepository,
+        *,
+        monitoring_service: MonitoringService | None = None,
     ) -> None:
         self.chat_model = chat_model
         self.retrieval_service = retrieval_service
         self.repository = repository
+        self.monitoring_service = monitoring_service
+
+    def _stage_start(self, run_id: str | None) -> tuple[datetime, float] | None:
+        if run_id is None or self.monitoring_service is None:
+            return None
+        return datetime.now(UTC), perf_counter()
+
+    def _record_stage(
+        self,
+        run_id: str | None,
+        stage: str,
+        status: str,
+        started: tuple[datetime, float] | None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        if started is None or run_id is None or self.monitoring_service is None:
+            return
+        started_at, started_clock = started
+        try:
+            self.monitoring_service.record_event(
+                run_id,
+                stage,
+                status,
+                started_at,
+                max(0.0, (perf_counter() - started_clock) * 1000),
+                details,
+            )
+        except Exception:  # noqa: BLE001, S110 - diagnostics must not affect answers
+            pass
 
     async def prepare(
-        self, question: str, history: list[BaseMessage], generation_id: str
+        self,
+        question: str,
+        history: list[BaseMessage],
+        generation_id: str,
+        *,
+        run_id: str | None = None,
     ) -> RAGPreparation:
         retrieval_query = question
         if history:
@@ -164,25 +208,65 @@ class RAGService:
             if rewritten_text:
                 retrieval_query = rewritten_text
 
-        result = await self.retrieval_service.asearch(retrieval_query, generation_id)
-        return make_preparation(question, retrieval_query, result, generation_id)
+        if run_id is None:
+            result = await self.retrieval_service.asearch(retrieval_query, generation_id)
+        else:
+            result = await self.retrieval_service.asearch(
+                retrieval_query, generation_id, run_id=run_id
+            )
+        prepared = make_preparation(question, retrieval_query, result, generation_id)
+        if run_id is not None and self.monitoring_service is not None:
+            try:
+                self.monitoring_service.update_preparation(
+                    run_id,
+                    prepared,
+                    build_grounded_messages(question, prepared.documents),
+                )
+            except Exception:  # noqa: BLE001, S110 - diagnostics must not affect answers
+                pass
+        return prepared
 
-    async def stream_answer(self, prepared: RAGPreparation) -> AsyncIterator[str]:
-        if prepared.insufficient_context:
-            yield INSUFFICIENT_CONTEXT_REFUSAL
-            return
+    async def stream_answer(
+        self, prepared: RAGPreparation, *, run_id: str | None = None
+    ) -> AsyncIterator[str]:
+        started = self._stage_start(run_id)
+        try:
+            if prepared.insufficient_context:
+                yield INSUFFICIENT_CONTEXT_REFUSAL
+            else:
+                citation_filter = _CitationStreamFilter(
+                    {citation.label for citation in prepared.citations},
+                    prepared.generation_id,
+                )
+                messages = build_grounded_messages(
+                    prepared.original_question, prepared.documents
+                )
+                async for chunk in self.chat_model.astream(messages):
+                    text = citation_filter.push(_content_text(chunk.content))
+                    if text:
+                        yield text
 
-        citation_filter = _CitationStreamFilter(
-            {citation.label for citation in prepared.citations}, prepared.generation_id
+                remaining = citation_filter.finish()
+                if remaining:
+                    yield remaining
+        except BaseException as error:
+            status = (
+                "cancelled"
+                if isinstance(error, (asyncio.CancelledError, GeneratorExit))
+                else "failed"
+            )
+            self._record_stage(
+                run_id,
+                "chat",
+                status,
+                started,
+                {"error_type": type(error).__name__},
+            )
+            raise
+        self._record_stage(
+            run_id,
+            "chat",
+            "succeeded",
+            started,
+            {"insufficient_context": prepared.insufficient_context},
         )
-        messages = build_grounded_messages(
-            prepared.original_question, prepared.documents
-        )
-        async for chunk in self.chat_model.astream(messages):
-            text = citation_filter.push(_content_text(chunk.content))
-            if text:
-                yield text
-
-        remaining = citation_filter.finish()
-        if remaining:
-            yield remaining

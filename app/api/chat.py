@@ -12,6 +12,7 @@ from app.chat.schemas import ChatEvent, ChatRequest
 from app.chat.service import ChatService, NoActiveGenerationError
 from app.conversations.service import ConversationNotFoundError
 from app.error_sanitization import sanitized_error_message
+from app.monitoring.service import MonitoringService
 
 chat_router = APIRouter(
     prefix="/api/chat",
@@ -29,6 +30,29 @@ def _public_error(error: Exception) -> str:
     if isinstance(error, NoActiveGenerationError):
         return str(error)
     return sanitized_error_message(error)
+
+
+def _start_run(
+    monitoring: MonitoringService, question: str, conversation_id: str
+) -> str | None:
+    try:
+        return monitoring.start_run(question, conversation_id)
+    except Exception:  # noqa: BLE001 - diagnostics must not affect chat
+        return None
+
+
+def _finish_run(
+    monitoring: MonitoringService,
+    run_id: str | None,
+    status: str,
+    error: str | None = None,
+) -> None:
+    if run_id is None:
+        return
+    try:
+        monitoring.finish_run(run_id, status, "", error)
+    except Exception:  # noqa: BLE001, S110 - preserve the original chat outcome
+        pass
 
 
 async def _encode_stream(
@@ -73,24 +97,35 @@ async def stream_chat(payload: ChatRequest, request: Request) -> StreamingRespon
     # so requests on the event loop cannot race past the limit.
     await semaphore.acquire()
     service: ChatService = request.app.state.chat_service
+    monitoring: MonitoringService = request.app.state.monitoring_service
+    run_id: str | None = None
     try:
         conversation_id = payload.conversation_id
         if conversation_id is None:
             conversation_id = service.conversation_service.create().id
-        prepared = await service.prepare(payload.question, conversation_id)
+        run_id = _start_run(monitoring, payload.question, conversation_id)
+        if run_id is None:
+            prepared = await service.prepare(payload.question, conversation_id)
+        else:
+            prepared = await service.prepare(
+                payload.question, conversation_id, run_id=run_id
+            )
     except ConversationNotFoundError as error:
+        _finish_run(monitoring, run_id, "failed", _public_error(error))
         semaphore.release()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found"
         ) from error
     except Exception as error:  # noqa: BLE001 - SSE is the public error boundary
+        _finish_run(monitoring, run_id, "failed", _public_error(error))
         return _response(_preparation_error(error, semaphore.release))
     except BaseException:
+        _finish_run(monitoring, run_id, "cancelled")
         semaphore.release()
         raise
 
-    return _response(
-        _encode_stream(
-            service.stream(conversation_id, prepared), semaphore.release
-        )
-    )
+    if run_id is None:
+        events = service.stream(conversation_id, prepared)
+    else:
+        events = service.stream(conversation_id, prepared, run_id=run_id)
+    return _response(_encode_stream(events, semaphore.release))
