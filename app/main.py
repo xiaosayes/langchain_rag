@@ -16,6 +16,7 @@ from app.api.chat import chat_router
 from app.api.conversations import conversations_router
 from app.api.documents import documents_router
 from app.api.feedback import feedback_router
+from app.api.monitoring import monitoring_router
 from app.api.tasks import tasks_router
 from app.bootstrap import build_rag_service, state_directory
 from app.chat.service import ChatService
@@ -82,6 +83,7 @@ def create_app(
     app.include_router(conversations_router)
     app.include_router(chat_router)
     app.include_router(feedback_router)
+    app.include_router(monitoring_router)
     app.include_router(documents_router)
     app.include_router(tasks_router)
     app.include_router(health_router)

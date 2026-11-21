@@ -34,6 +34,8 @@ retrieval:
   final_parent_count: 6
   max_parents_per_document: 2
   max_context_characters: 12000
+monitoring:
+  retention_days: 30
 web:
   host: 127.0.0.1
   port: 18000

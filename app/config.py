@@ -92,6 +92,10 @@ class WebSettings(BaseModel):
     frontend_dist: Path = Path("frontend/dist")
 
 
+class MonitoringSettings(BaseModel):
+    retention_days: int = Field(default=30, gt=0)
+
+
 class AppSettings(BaseModel):
     app_env: Literal["production", "test"] = "production"
     model_provider: Literal["bailian", "fake"] = "bailian"
@@ -101,6 +105,7 @@ class AppSettings(BaseModel):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     chunk: ChunkSettings = Field(default_factory=ChunkSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
+    monitoring: MonitoringSettings = Field(default_factory=MonitoringSettings)
     web: WebSettings = Field(default_factory=WebSettings)
     dashscope_api_key: SecretStr | None = None
 
