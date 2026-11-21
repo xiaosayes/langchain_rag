@@ -265,3 +265,44 @@ def test_missing_run_returns_404_after_authentication(client: TestClient):
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Monitoring run not found"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/monitoring/summary?hours=24",
+        "/api/monitoring/runs?limit=50&status=&query=",
+        "/api/monitoring/runs/existing-run",
+    ],
+)
+def test_monitoring_routes_return_sanitized_503_on_storage_failure(
+    client: TestClient, path: str
+):
+    succeeded_id, _failed_id = seed_runs(client)
+    detail_path = f"/api/monitoring/runs/{succeeded_id}"
+    if path.endswith("existing-run"):
+        path = detail_path
+    login(client)
+
+    class BrokenFactory:
+        def __call__(self):
+            raise RuntimeError(
+                "SELECT * FROM private_table; password=API_DB_SECRET; "
+                r"C:\private\API_DB_PATH\index.sqlite3"
+            )
+
+    client.app.state.monitoring_service.session_factory = BrokenFactory()
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Monitoring storage unavailable"}
+    for sentinel in (
+        "SELECT",
+        "private_table",
+        "API_DB_SECRET",
+        "API_DB_PATH",
+        "password=",
+        "index.sqlite3",
+    ):
+        assert sentinel not in response.text

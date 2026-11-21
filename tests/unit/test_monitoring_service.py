@@ -385,3 +385,46 @@ def test_purge_deletes_old_db_events_and_jsonl_and_is_idempotent(tmp_path: Path)
     assert [
         json.loads(line) for line in trace_path.read_text().splitlines()
     ] == remaining
+
+
+def test_jsonl_purge_failure_preserves_db_ids_for_successful_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service = make_service(tmp_path)
+    cutoff = datetime.now(UTC)
+    old_id = service.start_run("old", "conversation-old")
+    new_id = service.start_run("new", "conversation-new")
+    factory = create_session_factory(tmp_path / "index.sqlite3")
+    with factory.begin() as session:
+        session.get(ChatRunRecord, old_id).created_at = cutoff - timedelta(days=31)
+    service.finish_run(old_id, "succeeded", "old answer")
+    service.finish_run(new_id, "succeeded", "new answer")
+    unrelated_line = json.dumps({"id": "unrelated", "value": "keep"})
+    malformed_line = "{not-json"
+    with service.trace_path.open("a", encoding="utf-8") as trace:
+        trace.write(unrelated_line + "\n" + malformed_line + "\n")
+    original_lines = service.trace_path.read_text(encoding="utf-8").splitlines()
+    original_purge_jsonl = service._purge_jsonl
+    should_fail = True
+
+    def fail_once(run_ids: set[str]) -> None:
+        nonlocal should_fail
+        if should_fail:
+            should_fail = False
+            raise OSError("temporary JSONL failure")
+        original_purge_jsonl(run_ids)
+
+    monkeypatch.setattr(service, "_purge_jsonl", fail_once)
+
+    # The legacy instrumentation wrapper stays fail-open and leaves DB IDs intact.
+    service.purge(cutoff)
+    assert service.get_run(old_id) is not None
+    assert service.get_run(new_id) is not None
+    assert service.trace_path.read_text(encoding="utf-8").splitlines() == original_lines
+
+    assert service.purge(cutoff) == 1
+    assert service.get_run(old_id) is None
+    assert service.get_run(new_id) is not None
+    remaining_lines = service.trace_path.read_text(encoding="utf-8").splitlines()
+    assert json.loads(remaining_lines[0])["id"] == new_id
+    assert remaining_lines[1:] == [unrelated_line, malformed_line]

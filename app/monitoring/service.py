@@ -193,9 +193,9 @@ class MonitoringService:
                     self._started_clocks[run_id] = started_clock
             self._warn("finish", monitoring_error)
 
-    def summary(self, hours: int) -> dict[str, int | float]:
-        """Return counts and nearest-rank latency statistics for recent runs."""
-        empty: dict[str, int | float] = {
+    @staticmethod
+    def _empty_summary(hours: int) -> dict[str, int | float]:
+        return {
             "hours": hours,
             "total": 0,
             "running": 0,
@@ -206,40 +206,49 @@ class MonitoringService:
             "average_duration_ms": 0.0,
             "p95_duration_ms": 0.0,
         }
+
+    def summary(self, hours: int) -> dict[str, int | float]:
+        """Return a fail-open summary for instrumentation compatibility."""
+        empty = self._empty_summary(hours)
         try:
-            if (
-                isinstance(hours, bool)
-                or not isinstance(hours, int)
-                or not 1 <= hours <= 8760
-            ):
-                return empty
-            cutoff = datetime.now(UTC) - timedelta(hours=hours)
-            with self.session_factory() as session:
-                rows = session.execute(
-                    select(
-                        ChatRunRecord.status,
-                        ChatRunRecord.degraded,
-                        ChatRunRecord.duration_ms,
-                    ).where(ChatRunRecord.created_at >= cutoff)
-                ).all()
-            for status, degraded, _duration_ms in rows:
-                empty["total"] += 1
-                if status in _RUN_STATUSES:
-                    empty[status] += 1
-                if degraded:
-                    empty["degraded"] += 1
-            durations = sorted(
-                float(duration_ms)
-                for _status, _degraded, duration_ms in rows
-                if duration_ms is not None
-            )
-            if durations:
-                empty["average_duration_ms"] = sum(durations) / len(durations)
-                empty["p95_duration_ms"] = durations[ceil(len(durations) * 0.95) - 1]
-            return empty
+            return self.summary_strict(hours)
         except Exception as error:  # noqa: BLE001 - monitoring must fail open
             self._warn("summary", error)
             return empty
+
+    def summary_strict(self, hours: int) -> dict[str, int | float]:
+        """Return recent counts and latency statistics, propagating DB failures."""
+        empty = self._empty_summary(hours)
+        if (
+            isinstance(hours, bool)
+            or not isinstance(hours, int)
+            or not 1 <= hours <= 8760
+        ):
+            return empty
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(
+                    ChatRunRecord.status,
+                    ChatRunRecord.degraded,
+                    ChatRunRecord.duration_ms,
+                ).where(ChatRunRecord.created_at >= cutoff)
+            ).all()
+        for status, degraded, _duration_ms in rows:
+            empty["total"] += 1
+            if status in _RUN_STATUSES:
+                empty[status] += 1
+            if degraded:
+                empty["degraded"] += 1
+        durations = sorted(
+            float(duration_ms)
+            for _status, _degraded, duration_ms in rows
+            if duration_ms is not None
+        )
+        if durations:
+            empty["average_duration_ms"] = sum(durations) / len(durations)
+            empty["p95_duration_ms"] = durations[ceil(len(durations) * 0.95) - 1]
+        return empty
 
     def list_runs(
         self,
@@ -247,60 +256,73 @@ class MonitoringService:
         status: str | None = None,
         query: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List newest runs, optionally filtering status or an exact record ID."""
+        """List newest runs with legacy fail-open storage behavior."""
         try:
-            if (
-                isinstance(limit, bool)
-                or not isinstance(limit, int)
-                or not 1 <= limit <= 100
-            ):
-                return []
-            if status is not None and not isinstance(status, str):
-                return []
-            if query is not None and not isinstance(query, str):
-                return []
-            status = status or None
-            query = query or None
-            if status is not None and status not in _RUN_STATUSES:
-                return []
-            statement = select(ChatRunRecord)
-            if status is not None:
-                statement = statement.where(ChatRunRecord.status == status)
-            if query is not None:
-                statement = statement.where(
-                    (ChatRunRecord.id == query)
-                    | (ChatRunRecord.conversation_id == query)
-                    | (ChatRunRecord.message_id == query)
-                )
-            statement = statement.order_by(
-                ChatRunRecord.created_at.desc(), ChatRunRecord.id.desc()
-            ).limit(limit)
-            with self.session_factory() as session:
-                runs = session.scalars(statement).all()
-                return [self._run_summary(run) for run in runs]
+            return self.list_runs_strict(limit, status, query)
         except Exception as error:  # noqa: BLE001 - monitoring must fail open
             self._warn("list", error)
             return []
 
+    def list_runs_strict(
+        self,
+        limit: int = 50,
+        status: str | None = None,
+        query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List newest matching runs, propagating database failures."""
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 100
+        ):
+            return []
+        if status is not None and not isinstance(status, str):
+            return []
+        if query is not None and not isinstance(query, str):
+            return []
+        status = status or None
+        query = query or None
+        if status is not None and status not in _RUN_STATUSES:
+            return []
+        statement = select(ChatRunRecord)
+        if status is not None:
+            statement = statement.where(ChatRunRecord.status == status)
+        if query is not None:
+            statement = statement.where(
+                (ChatRunRecord.id == query)
+                | (ChatRunRecord.conversation_id == query)
+                | (ChatRunRecord.message_id == query)
+            )
+        statement = statement.order_by(
+            ChatRunRecord.created_at.desc(), ChatRunRecord.id.desc()
+        ).limit(limit)
+        with self.session_factory() as session:
+            runs = session.scalars(statement).all()
+            return [self._run_summary(run) for run in runs]
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
-        """Return one complete run and its ordered stage timeline."""
+        """Return one complete run with legacy fail-open storage behavior."""
         try:
-            with self.session_factory() as session:
-                run = session.get(ChatRunRecord, run_id)
-                if run is None:
-                    return None
-                events = session.scalars(
-                    select(ChatRunEventRecord)
-                    .where(ChatRunEventRecord.run_id == run_id)
-                    .order_by(
-                        ChatRunEventRecord.started_at,
-                        ChatRunEventRecord.id,
-                    )
-                ).all()
-                return self._run_detail(run, events)
+            return self.get_run_strict(run_id)
         except Exception as error:  # noqa: BLE001 - monitoring must fail open
             self._warn("detail", error)
             return None
+
+    def get_run_strict(self, run_id: str) -> dict[str, Any] | None:
+        """Return one complete run, distinguishing absence from DB failure."""
+        with self.session_factory() as session:
+            run = session.get(ChatRunRecord, run_id)
+            if run is None:
+                return None
+            events = session.scalars(
+                select(ChatRunEventRecord)
+                .where(ChatRunEventRecord.run_id == run_id)
+                .order_by(
+                    ChatRunEventRecord.started_at,
+                    ChatRunEventRecord.id,
+                )
+            ).all()
+            return self._run_detail(run, events)
 
     @staticmethod
     def _run_summary(run: ChatRunRecord) -> dict[str, Any]:
@@ -387,32 +409,33 @@ class MonitoringService:
                 os.close(descriptor)
 
     def purge(self, before: datetime) -> int:
-        """Delete old runs and their JSONL snapshots; repeat calls are safe."""
+        """Purge old traces while retaining the legacy fail-open contract."""
         try:
-            if before.tzinfo is None:
-                before = before.replace(tzinfo=UTC)
-            else:
-                before = before.astimezone(UTC)
-            with self.session_factory.begin() as session:
-                run_ids = set(
-                    session.scalars(
-                        select(ChatRunRecord.id).where(
-                            ChatRunRecord.created_at < before
-                        )
-                    ).all()
-                )
-                if run_ids:
-                    session.execute(
-                        delete(ChatRunRecord).where(ChatRunRecord.id.in_(run_ids))
-                    )
+            return self.purge_strict(before)
         except Exception as error:  # noqa: BLE001 - monitoring must fail open
-            self._warn("purge database", error)
+            self._warn("purge", error)
             return 0
 
-        try:
-            self._purge_jsonl(run_ids)
-        except Exception as error:  # noqa: BLE001 - monitoring must fail open
-            self._warn("purge JSONL", error)
+    def purge_strict(self, before: datetime) -> int:
+        """Compact JSONL before DB deletion so either failure can be retried."""
+        if before.tzinfo is None:
+            before = before.replace(tzinfo=UTC)
+        else:
+            before = before.astimezone(UTC)
+        with self.session_factory() as session:
+            run_ids = set(
+                session.scalars(
+                    select(ChatRunRecord.id).where(ChatRunRecord.created_at < before)
+                ).all()
+            )
+
+        # A compaction failure leaves the selected rows available for the next run.
+        self._purge_jsonl(run_ids)
+        if run_ids:
+            with self.session_factory.begin() as session:
+                session.execute(
+                    delete(ChatRunRecord).where(ChatRunRecord.id.in_(run_ids))
+                )
         return len(run_ids)
 
     def _purge_jsonl(self, run_ids: set[str]) -> None:

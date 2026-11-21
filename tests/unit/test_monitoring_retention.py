@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import DatabaseError
 from typer.testing import CliRunner
 
 from app.cli import cli_app
@@ -128,3 +129,63 @@ def test_monitoring_purge_rejects_invalid_days(days: str):
     result = runner.invoke(cli_app, ["monitoring-purge", "--days", days])
 
     assert result.exit_code == 2
+
+
+def test_monitoring_purge_database_failure_is_nonzero_and_sanitized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("RAG_STATE_DIR", str(tmp_path / "state"))
+
+    class BrokenFactory:
+        def __call__(self):
+            raise self.error()
+
+        def begin(self):
+            raise self.error()
+
+        @staticmethod
+        def error():
+            return DatabaseError(
+                "DELETE FROM private_table WHERE token = 'CLI_DB_SECRET'",
+                None,
+                Exception(r"C:\private\CLI_DB_PATH\index.sqlite3"),
+            )
+
+    monkeypatch.setattr(
+        "app.cli.create_session_factory", lambda _path: BrokenFactory()
+    )
+
+    result = runner.invoke(cli_app, ["monitoring-purge", "--days", "30"])
+
+    assert result.exit_code == 1
+    assert "Database operation failed" in result.output
+    assert "Deleted monitoring runs" not in result.output
+    for sentinel in (
+        "DELETE FROM",
+        "private_table",
+        "CLI_DB_SECRET",
+        "CLI_DB_PATH",
+        "index.sqlite3",
+    ):
+        assert sentinel not in result.output
+
+
+def test_monitoring_purge_jsonl_failure_is_nonzero_and_sanitized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("RAG_STATE_DIR", str(tmp_path / "state"))
+
+    def fail_compaction(_self, _run_ids):
+        raise OSError(
+            r"C:\private\CLI_JSONL_PATH\chat-trace.jsonl password=CLI_JSONL_SECRET"
+        )
+
+    monkeypatch.setattr(MonitoringService, "_purge_jsonl", fail_compaction)
+
+    result = runner.invoke(cli_app, ["monitoring-purge", "--days", "30"])
+
+    assert result.exit_code == 1
+    assert "Local file or network operation failed" in result.output
+    assert "Deleted monitoring runs" not in result.output
+    for sentinel in ("CLI_JSONL_PATH", "CLI_JSONL_SECRET", "password=", "chat-trace"):
+        assert sentinel not in result.output

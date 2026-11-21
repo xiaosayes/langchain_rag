@@ -44,6 +44,12 @@ def _fail(error: Exception) -> NoReturn:
     raise typer.Exit(code=1) from error
 
 
+def _fail_monitoring_purge(error: Exception) -> NoReturn:
+    message = sanitized_error_message(error)
+    typer.echo(f"Error: Monitoring purge failed: {message}", err=True)
+    raise typer.Exit(code=1) from error
+
+
 def _parse_documents(
     corpus: Path, qa: Path
 ) -> tuple[dict[str, list[ParsedBlock]], int]:
@@ -172,9 +178,9 @@ def monitoring_purge(
         service = MonitoringService(
             create_session_factory(root / "index.sqlite3"), root
         )
-        deleted = service.purge(cutoff)
-    except (OSError, ValueError, SQLAlchemyError) as error:
-        _fail(error)
+        deleted = service.purge_strict(cutoff)
+    except Exception as error:  # noqa: BLE001 - sanitized maintenance boundary
+        _fail_monitoring_purge(error)
     typer.echo(f"Deleted monitoring runs: {deleted}")
     typer.echo(f"Cutoff: {cutoff.isoformat()}")
 
