@@ -32,6 +32,15 @@ button, a { touch-action: manipulation; }
 .citation-content { color: #3d4b63; }
 .citation-metadata { max-height: 220px; overflow: auto; padding: 12px; background: #f5f6f8; border-radius: 6px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-controls { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid #edf0f5; }
+.monitoring-content { width: 100%; max-width: 1440px; margin: 0 auto; padding: 24px; }
+.monitoring-stack { width: 100%; }
+.monitoring-summary-card { height: 100%; }
+.monitoring-status-filter { width: 140px; }
+.monitoring-question { height: auto; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.monitoring-loading { display: grid; place-items: center; min-height: 100px; }
+.monitoring-text-section > .ant-card { margin-bottom: 8px; }
+.monitoring-text { max-height: 360px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: inherit; color: #3d4b63; }
+.monitoring-event .monitoring-text { margin-top: 8px; }
 .composer { width: min(100%, 960px); margin: 0 auto; padding: 12px 24px 24px; }
 .composer-row { display: flex; align-items: flex-end; gap: 10px; padding: 10px; border-radius: 12px; background: #fff; box-shadow: 0 4px 20px rgb(25 45 75 / 10%); }
 .composer-input { flex: 1; }
@@ -40,5 +49,6 @@ button, a { touch-action: manipulation; }
   .messages { padding: 16px 12px; }
   .composer { padding: 8px 12px 16px; }
   .message-card { max-width: 94%; }
+  .monitoring-content { padding: 16px 12px; }
   .chat-header .header-label { display: none; }
 }

@@ -3,6 +3,7 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   LogoutOutlined,
+  MonitorOutlined,
   SyncOutlined,
 } from "@ant-design/icons";
 import {
@@ -331,6 +332,7 @@ export default function DocumentsPage() {
         <Typography.Title level={3} className="chat-title">文档管理</Typography.Title>
         <Space>
           <Link to="/chat"><FileTextOutlined /> 返回对话</Link>
+          <Link to="/monitoring"><MonitorOutlined /> 运行监控</Link>
           <Button type="text" icon={<LogoutOutlined />} onClick={() => void logOut()}>
             退出登录
           </Button>
