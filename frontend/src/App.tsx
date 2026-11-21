@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import LoginPage from "./pages/LoginPage";
+import MonitoringPage from "./pages/MonitoringPage";
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
@@ -32,6 +33,10 @@ export default function App() {
         <Route
           path="/documents"
           element={<ProtectedRoute><DocumentsPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/monitoring"
+          element={<ProtectedRoute><MonitoringPage /></ProtectedRoute>}
         />
         <Route path="*" element={<Navigate to="/chat" replace />} />
       </Routes>

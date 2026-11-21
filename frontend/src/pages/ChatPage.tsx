@@ -3,6 +3,7 @@ import {
   EditOutlined,
   FileTextOutlined,
   LogoutOutlined,
+  MonitorOutlined,
   PlusOutlined,
   SendOutlined,
   StopOutlined,
@@ -326,6 +327,7 @@ export default function ChatPage() {
           <Typography.Title level={3} className="chat-title">{activeTitle}</Typography.Title>
           <Space>
             <Link to="/documents"><FileTextOutlined /> <span className="header-label">文档管理</span></Link>
+            <Link to="/monitoring"><MonitorOutlined /> <span className="header-label">运行监控</span></Link>
             <Button type="text" icon={<LogoutOutlined />} onClick={() => void logOut()}>
               退出登录
             </Button>

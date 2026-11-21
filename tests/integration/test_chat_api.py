@@ -7,16 +7,18 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from sqlalchemy import func, select
 
-from app.api.chat import _encode_stream
+from app.api.chat import _encode_event, _encode_stream, stream_chat
+from app.chat.schemas import ChatRequest
 from app.config import AppSettings
 from app.db.models import IndexGenerationRecord
 from app.main import create_app
-from app.rag.service import Citation, RAGPreparation
+from app.rag.service import Citation, RAGPreparation, RAGService
 from app.web.records import FeedbackRecord, MessageRecord
 
 
@@ -28,6 +30,8 @@ class FakeRAGService:
         self.cleanup_error: Exception | None = None
         self.histories = []
         self.generation_ids = []
+        self.prepare_run_ids = []
+        self.stream_run_ids = []
         self.prepare_calls = 0
         self.block_preparation = False
         self.block_stream = False
@@ -36,10 +40,11 @@ class FakeRAGService:
         self.stream_waiting = asyncio.Event()
         self.stream_closed = asyncio.Event()
 
-    async def prepare(self, question, history, generation_id):
+    async def prepare(self, question, history, generation_id, *, run_id=None):
         self.prepare_calls += 1
         self.histories.append(history)
         self.generation_ids.append(generation_id)
+        self.prepare_run_ids.append(run_id)
         if self.prepare_error is not None:
             raise self.prepare_error
         if self.block_preparation:
@@ -72,7 +77,8 @@ class FakeRAGService:
             insufficient_context=False,
         )
 
-    async def stream_answer(self, prepared):
+    async def stream_answer(self, prepared, *, run_id=None):
+        self.stream_run_ids.append(run_id)
         try:
             if self.chunks:
                 yield self.chunks[0]
@@ -121,6 +127,18 @@ def chat(client: TestClient, csrf: str, payload: dict):
     return client.post(
         "/api/chat/stream", json=payload, headers={"X-CSRF-Token": csrf}
     )
+
+
+def assert_one_terminal_run(app, status: str, answer: str) -> dict:
+    runs = app.state.monitoring_service.list_runs()
+    assert len(runs) == 1
+    detail = app.state.monitoring_service.get_run(runs[0]["id"])
+    assert detail is not None
+    assert detail["status"] == status
+    assert detail["answer"] == answer
+    trace_path = app.state.monitoring_service.trace_path
+    assert len(trace_path.read_text(encoding="utf-8").splitlines()) == 1
+    return detail
 
 
 def sse_events(response) -> list[tuple[str, dict]]:
@@ -177,6 +195,13 @@ def test_sse_order_json_citations_and_persisted_metadata(tmp_path, monkeypatch):
         assert assistant.generation_id == "gen-active"
         assert assistant.cancelled is False
         assert assistant.error is None
+
+        detail = assert_one_terminal_run(app, "succeeded", "grounded answer[S1]")
+        assert detail["message_id"] == start["message_id"]
+        assert detail["conversation_id"] == start["conversation_id"]
+        assert detail["error"] is None
+        assert fake.prepare_run_ids == [detail["id"]]
+        assert fake.stream_run_ids == [detail["id"]]
 
 
 def test_history_is_last_six_prior_messages_with_langchain_roles(tmp_path, monkeypatch):
@@ -236,6 +261,9 @@ def test_missing_generation_is_a_sanitized_sse_error(tmp_path, monkeypatch):
         assert [(message.role, message.content) for message in messages] == [
             ("user", "question")
         ]
+        detail = assert_one_terminal_run(app, "failed", "")
+        assert detail["message_id"] is None
+        assert detail["error"] == events[0][1]["message"]
 
 
 def test_provider_failure_is_sanitized_and_partial_is_not_done(tmp_path, monkeypatch):
@@ -264,6 +292,10 @@ def test_provider_failure_is_sanitized_and_partial_is_not_done(tmp_path, monkeyp
             assert assistant.error == events[-1][1]["message"]
             assert secret not in (assistant.error or "")
         assert app.state.conversation_service.list_messages(conversation_id)
+        detail = assert_one_terminal_run(app, "failed", "grounded ")
+        assert detail["message_id"] == events[0][1]["message_id"]
+        assert detail["error"] == events[-1][1]["message"]
+        assert secret not in (detail["error"] or "")
 
 
 def test_cancellation_closes_upstream_and_persists_partial_cancelled(
@@ -275,9 +307,10 @@ def test_cancellation_closes_upstream_and_persists_partial_cancelled(
         fake.block_stream = True
         fake.chunks = ["grounded "]
         service = app.state.chat_service
-        prepared = await service.prepare("question", None)
-        conversation_id = app.state.conversation_service.list()[0].id
-        events = service.stream(conversation_id, prepared)
+        conversation_id = app.state.conversation_service.create().id
+        run_id = app.state.monitoring_service.start_run("question", conversation_id)
+        prepared = await service.prepare("question", conversation_id, run_id=run_id)
+        events = service.stream(conversation_id, prepared, run_id=run_id)
         start = await anext(events)
         token = await anext(events)
         assert start.event == "start"
@@ -299,8 +332,163 @@ def test_cancellation_closes_upstream_and_persists_partial_cancelled(
             assert assistant.content == "grounded "
             assert assistant.cancelled is True
             assert assistant.error is None
+        detail = assert_one_terminal_run(app, "cancelled", "grounded ")
+        assert detail["message_id"] == start.data["message_id"]
+        assert detail["error"] is None
 
     asyncio.run(exercise())
+
+
+@pytest.mark.asyncio
+async def test_close_after_token_finalizes_real_rag_before_terminal_snapshot(
+    tmp_path, monkeypatch
+):
+    app, _ = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+
+    class ChatModel:
+        async def astream(self, messages):
+            yield AIMessageChunk(content="partial ")
+            yield AIMessageChunk(content="unconsumed")
+
+    monitoring = app.state.monitoring_service
+    rag = RAGService(
+        ChatModel(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        monitoring_service=monitoring,
+    )
+    service = app.state.chat_service
+    service.rag_service = rag
+    conversation_id = app.state.conversation_service.create().id
+    run_id = monitoring.start_run("question", conversation_id)
+    document = Document(
+        page_content="source",
+        metadata={"document_id": "doc-1", "parent_id": "parent-1"},
+    )
+    prepared = RAGPreparation(
+        original_question="question",
+        retrieval_query="question",
+        documents=[document],
+        citations=[
+            Citation(
+                label="S1",
+                document_id="doc-1",
+                parent_id="parent-1",
+                text="source",
+                metadata=dict(document.metadata),
+            )
+        ],
+        degraded=False,
+        generation_id="gen-active",
+        insufficient_context=False,
+    )
+    events = service.stream(conversation_id, prepared, run_id=run_id)
+    assert (await anext(events)).event == "start"
+    assert (await anext(events)).data == {"content": "partial "}
+
+    await events.aclose()
+
+    detail = assert_one_terminal_run(app, "cancelled", "partial ")
+    snapshot = json.loads(
+        monitoring.trace_path.read_text(encoding="utf-8").splitlines()[0]
+    )
+    for traced in (detail, snapshot):
+        chat_events = [
+            event for event in traced["events"] if event["stage"] == "chat_stream"
+        ]
+        assert len(chat_events) == 1
+        assert chat_events[0]["status"] == "cancelled"
+    factory = app.state.conversation_service.session_factory
+    with factory() as session:
+        assistants = session.scalars(
+            select(MessageRecord).where(MessageRecord.role == "assistant")
+        ).all()
+        assert len(assistants) == 1
+        assert assistants[0].content == "partial "
+        assert assistants[0].cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_api_stream_close_before_first_advance_finishes_cancelled_run(
+    tmp_path, monkeypatch
+):
+    app, _ = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    request = Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/chat/stream",
+            "raw_path": b"/api/chat/stream",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [],
+            "client": ("testclient", 123),
+            "server": ("testserver", 80),
+            "app": app,
+        }
+    )
+    response = await stream_chat(ChatRequest(question="early close"), request)
+
+    await response.body_iterator.aclose()
+
+    detail = assert_one_terminal_run(app, "cancelled", "")
+    assert detail["message_id"] is None
+    assert not app.state.chat_semaphore.locked()
+    factory = app.state.conversation_service.session_factory
+    with factory() as session:
+        assert (
+            session.scalars(
+                select(MessageRecord).where(MessageRecord.role == "assistant")
+            ).all()
+            == []
+        )
+
+
+@pytest.mark.asyncio
+async def test_encoding_failure_closes_upstream_releases_slot_and_cancels_run(
+    tmp_path, monkeypatch
+):
+    app, fake = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    service = app.state.chat_service
+    conversation_id = app.state.conversation_service.create().id
+    run_id = app.state.monitoring_service.start_run("question", conversation_id)
+    prepared = await service.prepare("question", conversation_id, run_id=run_id)
+    encoded = _encode_stream(
+        service.stream(conversation_id, prepared, run_id=run_id), semaphore.release
+    )
+
+    def fail_token_encoding(event):
+        if event.event == "token":
+            raise RuntimeError("encoding failed")
+        return _encode_event(event)
+
+    monkeypatch.setattr("app.api.chat._encode_event", fail_token_encoding)
+    assert (await anext(encoded)).startswith(b"event: start")
+    with pytest.raises(RuntimeError, match="encoding failed"):
+        await anext(encoded)
+
+    try:
+        assert fake.stream_closed.is_set()
+        assert not semaphore.locked()
+        detail = assert_one_terminal_run(app, "cancelled", "grounded ")
+        assert detail["error"] is None
+        factory = app.state.conversation_service.session_factory
+        with factory() as session:
+            assistant = session.scalar(
+                select(MessageRecord).where(MessageRecord.role == "assistant")
+            )
+            assert assistant is not None
+            assert assistant.content == "grounded "
+            assert assistant.cancelled is True
+    finally:
+        await encoded.aclose()
 
 
 @pytest.mark.asyncio
@@ -414,6 +602,9 @@ async def test_asgi_disconnect_persists_partial_and_releases_route_slot(
             assert assistant.cancelled is True
             assert assistant.error is None
         assert not app.state.chat_semaphore.locked()
+        detail = assert_one_terminal_run(app, "cancelled", "partial")
+        assert detail["message_id"] == assistant.id
+        assert detail["error"] is None
         assert any(
             message["type"] == "http.response.body"
             and b"event: token" in message.get("body", b"")
@@ -462,6 +653,60 @@ async def test_sixth_concurrent_chat_gets_immediate_429(tmp_path, monkeypatch):
         fake.release_preparation.set()
         responses = await asyncio.gather(*requests)
         assert [response.status_code for response in responses] == [200] * 5
+
+
+@pytest.mark.parametrize("provider_failure", [False, True])
+def test_monitoring_failures_never_change_sse_or_partial_answers(
+    tmp_path, monkeypatch, provider_failure: bool
+):
+    app, fake = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+    if provider_failure:
+        fake.stream_error = RuntimeError("provider-secret")
+
+    def fail_monitoring(*args, **kwargs):
+        raise RuntimeError("monitoring unavailable")
+
+    monkeypatch.setattr(app.state.monitoring_service, "set_message_id", fail_monitoring)
+    monkeypatch.setattr(app.state.monitoring_service, "finish_run", fail_monitoring)
+    with TestClient(app) as client:
+        response = chat(client, login(client), {"question": "question"})
+
+    assert response.status_code == 200
+    events = sse_events(response)
+    if provider_failure:
+        assert [event for event, _ in events] == ["start", "token", "error"]
+        assert "provider-secret" not in response.text
+    else:
+        assert [event for event, _ in events] == [
+            "start",
+            "token",
+            "token",
+            "citations",
+            "done",
+        ]
+        assert events[-2][1]["citations"][0]["text"] == "source-1"
+
+
+def test_monitoring_start_failure_does_not_change_chat(tmp_path, monkeypatch):
+    app, _ = make_app(tmp_path, monkeypatch)
+    activate_generation(app)
+
+    def fail_start(*args, **kwargs):
+        raise RuntimeError("monitoring unavailable")
+
+    monkeypatch.setattr(app.state.monitoring_service, "start_run", fail_start)
+    with TestClient(app) as client:
+        response = chat(client, login(client), {"question": "question"})
+
+    assert response.status_code == 200
+    assert [event for event, _ in sse_events(response)] == [
+        "start",
+        "token",
+        "token",
+        "citations",
+        "done",
+    ]
 
 
 def test_feedback_is_local_upsert_with_validation(tmp_path, monkeypatch):

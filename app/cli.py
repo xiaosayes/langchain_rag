@@ -1,6 +1,7 @@
 """Thin command-line interface for complete core indexing and grounded answers."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -10,12 +11,14 @@ from openai import OpenAIError
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.bootstrap import build_index_builder, build_rag_service
+from app.bootstrap import build_index_builder, build_rag_service, state_directory
 from app.config import load_settings
+from app.db.session import create_session_factory
 from app.domain.models import ParsedBlock
 from app.error_sanitization import sanitized_error_message
 from app.ingestion.registry import ParserRegistry
 from app.ingestion.text_office import QAParser
+from app.monitoring.service import MonitoringService
 from app.rag.service import RAGService
 from app.verification import (
     CoreVerifier,
@@ -38,6 +41,12 @@ QAOption = Annotated[Path, typer.Option("--qa", help="Knowledge Q&A workbook")]
 def _fail(error: Exception) -> NoReturn:
     message = sanitized_error_message(error, preserve_application_message=True)
     typer.echo(f"Error: {message}", err=True)
+    raise typer.Exit(code=1) from error
+
+
+def _fail_monitoring_purge(error: Exception) -> NoReturn:
+    message = sanitized_error_message(error)
+    typer.echo(f"Error: Monitoring purge failed: {message}", err=True)
     raise typer.Exit(code=1) from error
 
 
@@ -144,6 +153,36 @@ def ask(
     finally:
         if service is not None:
             service.retrieval_service.qdrant.client.close()
+
+
+@cli_app.command("monitoring-purge")
+def monitoring_purge(
+    days: Annotated[
+        int | None,
+        typer.Option(
+            "--days",
+            min=1,
+            help="Delete traces older than this many days (default: configured value)",
+        ),
+    ] = None,
+) -> None:
+    """Explicitly delete old monitoring traces without touching business data."""
+    try:
+        settings = load_settings()
+        retention_days = (
+            settings.monitoring.retention_days if days is None else days
+        )
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        root = state_directory()
+        root.mkdir(parents=True, exist_ok=True)
+        service = MonitoringService(
+            create_session_factory(root / "index.sqlite3"), root
+        )
+        deleted = service.purge_strict(cutoff)
+    except Exception as error:  # noqa: BLE001 - sanitized maintenance boundary
+        _fail_monitoring_purge(error)
+    typer.echo(f"Deleted monitoring runs: {deleted}")
+    typer.echo(f"Cutoff: {cutoff.isoformat()}")
 
 
 @cli_app.command()

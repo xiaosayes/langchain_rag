@@ -201,6 +201,35 @@ Both remain **NOT RUN** in this phase: no real API key was used, and the optiona
 **NOT RUN**. The implementer report retains the failed unfiltered OCR attempt rather than
 presenting the supported command as full OCR acceptance.
 
+## Local monitoring (no external account)
+
+The application stores complete chat traces locally in the existing SQLite database and
+in `RAG_STATE_DIR/monitoring/chat-trace.jsonl`. After login, open **监控** to view request
+counts, terminal states, degraded retrieval, average/P95 latency, recent runs, full
+question/answer/prompt/retrieved text, and per-stage timing. No external monitoring
+account, network upload, Docker container, or additional daemon is used. Feedback ratings
+are not aggregated on this page.
+
+Trace collection is fail-open so a monitoring write failure does not interrupt chat.
+Monitoring query storage failures return a sanitized 503 instead of pretending there is
+no data. Full prompts and retrieved text remain sensitive local data; restrict access to
+the state directory and backups.
+
+The default retention setting is 30 days. Cleanup is explicit and has no scheduler:
+
+```bash
+python -m app.cli monitoring-purge --days 30
+```
+
+Use the same environment and `RAG_STATE_DIR` as the API. The command deletes only old
+monitoring runs/events and their matching JSONL snapshots, then prints the deleted count.
+Database or JSONL failures produce a sanitized error and nonzero exit so the command can
+be retried. It does not delete conversations, messages, feedback, documents, tasks, or
+indexes. Run it at low load and back up state first.
+
+See [the complete monitoring and line-by-line implementation guide](../MONITORING_IMPLEMENTATION_GUIDE.md)
+for architecture, API details, operations, and exhaustive Chinese code explanations.
+
 ## Security and deployment direction
 
 This is a single-account application, not a multi-user identity system. It has no roles,

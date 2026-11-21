@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -17,6 +17,9 @@ from app.error_sanitization import sanitized_error_message
 from app.rag.service import RAGPreparation, RAGService
 from app.web.records import ConversationRecord, FeedbackRecord, MessageRecord
 
+if TYPE_CHECKING:
+    from app.monitoring.service import MonitoringService
+
 
 class NoActiveGenerationError(RuntimeError):
     """Raised when chat cannot select an active knowledge-base generation."""
@@ -28,14 +31,45 @@ class MessageNotFoundError(LookupError):
 
 class ChatService:
     def __init__(
-        self, rag_service: RAGService, conversation_service: ConversationService
+        self,
+        rag_service: RAGService,
+        conversation_service: ConversationService,
+        *,
+        monitoring_service: MonitoringService | None = None,
     ) -> None:
         self.rag_service = rag_service
         self.conversation_service = conversation_service
         self.session_factory = conversation_service.session_factory
+        self.monitoring_service = monitoring_service
+
+    def _set_message_id(self, run_id: str | None, message_id: str) -> None:
+        if run_id is None or self.monitoring_service is None:
+            return
+        try:
+            self.monitoring_service.set_message_id(run_id, message_id)
+        except Exception:  # noqa: BLE001, S110 - diagnostics must not affect chat
+            pass
+
+    def _finish_run(
+        self,
+        run_id: str | None,
+        status: str,
+        answer: str,
+        error: str | None = None,
+    ) -> None:
+        if run_id is None or self.monitoring_service is None:
+            return
+        try:
+            self.monitoring_service.finish_run(run_id, status, answer, error)
+        except Exception:  # noqa: BLE001, S110 - diagnostics must not affect chat
+            pass
 
     async def prepare(
-        self, question: str, conversation_id: str | None
+        self,
+        question: str,
+        conversation_id: str | None,
+        *,
+        run_id: str | None = None,
     ) -> RAGPreparation:
         """Persist the new turn before retrieval and supply only prior history."""
         if conversation_id is None:
@@ -72,7 +106,11 @@ class ChatService:
                 "No active index generation is available; ingest documents first"
             )
         history = [self._langchain_message(message) for message in history_records]
-        return await self.rag_service.prepare(question, history, generation_id)
+        if run_id is None:
+            return await self.rag_service.prepare(question, history, generation_id)
+        return await self.rag_service.prepare(
+            question, history, generation_id, run_id=run_id
+        )
 
     @staticmethod
     def _langchain_message(message: MessageRecord) -> BaseMessage:
@@ -121,13 +159,22 @@ class ChatService:
             )
 
     async def stream(
-        self, conversation_id: str, prepared: RAGPreparation
+        self,
+        conversation_id: str,
+        prepared: RAGPreparation,
+        *,
+        run_id: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
         """Emit answer events and persist only a terminal or cancelled answer."""
         message_id = uuid4().hex
+        self._set_message_id(run_id, message_id)
         answer_parts: list[str] = []
-        upstream = self.rag_service.stream_answer(prepared)
+        if run_id is None:
+            upstream = self.rag_service.stream_answer(prepared)
+        else:
+            upstream = self.rag_service.stream_answer(prepared, run_id=run_id)
         terminal = False
+        upstream_closed = False
         try:
             yield ChatEvent(
                 "start",
@@ -144,38 +191,47 @@ class ChatService:
 
             citations = self._citations(prepared)
             yield ChatEvent("citations", {"citations": citations})
-            self._persist_assistant(
-                message_id, conversation_id, prepared, "".join(answer_parts)
-            )
+            answer = "".join(answer_parts)
+            self._persist_assistant(message_id, conversation_id, prepared, answer)
             terminal = True
+            self._finish_run(run_id, "succeeded", answer)
             yield ChatEvent(
                 "done", {"conversation_id": conversation_id, "message_id": message_id}
             )
         except (asyncio.CancelledError, GeneratorExit):
             if not terminal:
+                answer = "".join(answer_parts)
                 self._persist_assistant(
                     message_id,
                     conversation_id,
                     prepared,
-                    "".join(answer_parts),
+                    answer,
                     cancelled=True,
                 )
+                upstream_closed = True
+                try:
+                    await upstream.aclose()
+                finally:
+                    self._finish_run(run_id, "cancelled", answer)
             raise
         except Exception as error:  # noqa: BLE001 - sanitize every provider failure
             message = sanitized_error_message(error)
+            answer = "".join(answer_parts)
             self._persist_assistant(
                 message_id,
                 conversation_id,
                 prepared,
-                "".join(answer_parts),
+                answer,
                 error=message,
             )
             terminal = True
+            self._finish_run(run_id, "failed", answer, message)
             yield ChatEvent(
                 "error", {"message_id": message_id, "message": message}
             )
         finally:
-            await upstream.aclose()
+            if not upstream_closed:
+                await upstream.aclose()
 
     def upsert_feedback(
         self, message_id: str, score: int, comment: str | None

@@ -9,7 +9,9 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -170,6 +172,73 @@ class MessageRecord(Base):
     feedback: Mapped[FeedbackRecord | None] = relationship(
         back_populates="message", cascade="all, delete-orphan"
     )
+
+
+class ChatRunRecord(Base):
+    __tablename__ = "chat_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed', 'cancelled')",
+            name="ck_chat_runs_status",
+        ),
+        Index("ix_chat_runs_created_at", "created_at"),
+        Index("ix_chat_runs_status_created_at", "status", "created_at"),
+        Index("ix_chat_runs_conversation_id", "conversation_id"),
+        Index("ix_chat_runs_message_id", "message_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    # These identifiers deliberately have no foreign keys: purging business data
+    # must not silently remove diagnostic runs, and monitoring purge must not
+    # delete conversations or messages.
+    conversation_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    retrieval_query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_messages_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'"), nullable=False
+    )
+    retrieved_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), default="running", server_default=text("'running'"), nullable=False
+    )
+    degraded: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        _UTCDateTime(), default=_utc_now, nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(_UTCDateTime(), nullable=True)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    events: Mapped[list[ChatRunEventRecord]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class ChatRunEventRecord(Base):
+    __tablename__ = "chat_run_events"
+    __table_args__ = (
+        Index("ix_chat_run_events_run_started", "run_id", "started_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("chat_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(_UTCDateTime(), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(_UTCDateTime(), nullable=False)
+    duration_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    details_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'"), nullable=False
+    )
+
+    run: Mapped[ChatRunRecord] = relationship(back_populates="events")
 
 
 class FeedbackRecord(Base):

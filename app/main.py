@@ -16,6 +16,7 @@ from app.api.chat import chat_router
 from app.api.conversations import conversations_router
 from app.api.documents import documents_router
 from app.api.feedback import feedback_router
+from app.api.monitoring import monitoring_router
 from app.api.tasks import tasks_router
 from app.bootstrap import build_rag_service, state_directory
 from app.chat.service import ChatService
@@ -23,6 +24,7 @@ from app.config import AppSettings, load_settings
 from app.conversations.service import ConversationService
 from app.db.session import create_session_factory
 from app.documents.service import DocumentService
+from app.monitoring.service import MonitoringService
 from app.web.auth import AuthService
 from app.web.health import health_router
 
@@ -63,15 +65,25 @@ def create_app(
     app.state.auth_service = auth_service
     app.state.document_service = DocumentService(auth_service.session_factory, settings)
     app.state.conversation_service = ConversationService(auth_service.session_factory)
+    app.state.monitoring_service = MonitoringService(
+        auth_service.session_factory, state_directory()
+    )
     app.state.rag_service = build_rag_service(settings)
+    app.state.rag_service.monitoring_service = app.state.monitoring_service
+    app.state.rag_service.retrieval_service.monitoring_service = (
+        app.state.monitoring_service
+    )
     app.state.chat_service = ChatService(
-        app.state.rag_service, app.state.conversation_service
+        app.state.rag_service,
+        app.state.conversation_service,
+        monitoring_service=app.state.monitoring_service,
     )
     app.state.chat_semaphore = asyncio.Semaphore(settings.web.max_chat_concurrency)
     app.include_router(auth_router)
     app.include_router(conversations_router)
     app.include_router(chat_router)
     app.include_router(feedback_router)
+    app.include_router(monitoring_router)
     app.include_router(documents_router)
     app.include_router(tasks_router)
     app.include_router(health_router)
