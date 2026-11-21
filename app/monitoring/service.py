@@ -140,17 +140,19 @@ class MonitoringService:
         error: str | None = None,
     ) -> None:
         """Finish a running run once, then append its complete JSONL snapshot."""
-        if status not in _TERMINAL_STATUSES:
-            raise ValueError("status must be succeeded, failed, or cancelled")
-        with self._clock_lock:
-            started_clock = self._started_clocks.pop(run_id, None)
-        ended_at = datetime.now(UTC)
-        duration_ms = (
-            max(0.0, (perf_counter() - started_clock) * 1000)
-            if started_clock is not None
-            else None
-        )
+        started_clock: float | None = None
+        terminal_committed = False
         try:
+            if not isinstance(status, str) or status not in _TERMINAL_STATUSES:
+                return
+            with self._clock_lock:
+                started_clock = self._started_clocks.pop(run_id, None)
+            ended_at = datetime.now(UTC)
+            duration_ms = (
+                max(0.0, (perf_counter() - started_clock) * 1000)
+                if started_clock is not None
+                else None
+            )
             snapshot: dict[str, Any] | None = None
             with self.session_factory.begin() as session:
                 run = session.get(ChatRunRecord, run_id)
@@ -171,15 +173,17 @@ class MonitoringService:
                     )
                 ).all()
                 snapshot = self._run_detail(run, events)
+            terminal_committed = True
             if snapshot is not None:
                 self._append_terminal_snapshot(snapshot)
         except Exception as monitoring_error:  # noqa: BLE001 - fail open
+            if started_clock is not None and not terminal_committed:
+                with self._clock_lock:
+                    self._started_clocks[run_id] = started_clock
             self._warn("finish", monitoring_error)
 
     def summary(self, hours: int) -> dict[str, int | float]:
         """Return counts and nearest-rank latency statistics for recent runs."""
-        if not 1 <= hours <= 8760:
-            raise ValueError("hours must be between 1 and 8760")
         empty: dict[str, int | float] = {
             "hours": hours,
             "total": 0,
@@ -192,6 +196,12 @@ class MonitoringService:
             "p95_duration_ms": 0.0,
         }
         try:
+            if (
+                isinstance(hours, bool)
+                or not isinstance(hours, int)
+                or not 1 <= hours <= 8760
+            ):
+                return empty
             cutoff = datetime.now(UTC) - timedelta(hours=hours)
             with self.session_factory() as session:
                 rows = session.execute(
@@ -227,13 +237,21 @@ class MonitoringService:
         query: str | None = None,
     ) -> list[dict[str, Any]]:
         """List newest runs, optionally filtering status or an exact record ID."""
-        if not 1 <= limit <= 100:
-            raise ValueError("limit must be between 1 and 100")
-        status = status or None
-        query = query or None
-        if status is not None and status not in _RUN_STATUSES:
-            raise ValueError("unsupported run status")
         try:
+            if (
+                isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or not 1 <= limit <= 100
+            ):
+                return []
+            if status is not None and not isinstance(status, str):
+                return []
+            if query is not None and not isinstance(query, str):
+                return []
+            status = status or None
+            query = query or None
+            if status is not None and status not in _RUN_STATUSES:
+                return []
             statement = select(ChatRunRecord)
             if status is not None:
                 statement = statement.where(ChatRunRecord.status == status)
@@ -360,6 +378,10 @@ class MonitoringService:
     def purge(self, before: datetime) -> int:
         """Delete old runs and their JSONL snapshots; repeat calls are safe."""
         try:
+            if before.tzinfo is None:
+                before = before.replace(tzinfo=UTC)
+            else:
+                before = before.astimezone(UTC)
             with self.session_factory.begin() as session:
                 run_ids = set(
                     session.scalars(
@@ -377,13 +399,13 @@ class MonitoringService:
             return 0
 
         try:
-            self._purge_jsonl(before, run_ids)
+            self._purge_jsonl(run_ids)
         except Exception as error:  # noqa: BLE001 - monitoring must fail open
             self._warn("purge JSONL", error)
         return len(run_ids)
 
-    def _purge_jsonl(self, before: datetime, run_ids: set[str]) -> None:
-        """Atomically compact snapshots, preserving malformed or unrelated lines."""
+    def _purge_jsonl(self, run_ids: set[str]) -> None:
+        """Compact only selected IDs, preserving malformed or unrelated lines."""
         with self._jsonl_lock:
             if not self.trace_path.exists():
                 return
@@ -393,14 +415,11 @@ class MonitoringService:
             ):
                 try:
                     snapshot = json.loads(line)
-                    created_at = datetime.fromisoformat(snapshot["created_at"])
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=UTC)
-                    if snapshot.get("id") in run_ids or created_at < before:
-                        continue
-                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                    # Never discard an unrelated or manually edited diagnostic line.
-                    pass
+                except json.JSONDecodeError:
+                    snapshot = None
+                snapshot_id = snapshot.get("id") if isinstance(snapshot, dict) else None
+                if isinstance(snapshot_id, str) and snapshot_id in run_ids:
+                    continue
                 kept_lines.append(line)
 
             temporary_path: Path | None = None
